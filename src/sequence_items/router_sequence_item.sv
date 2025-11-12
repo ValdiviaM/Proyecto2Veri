@@ -1,8 +1,5 @@
-`include "uvm_macros.svh"
-import uvm_pkg::*;
-
 //Se extiende de la clase base
-class packets extends uvm_sequence_item;
+class router_sequence_item extends uvm_sequence_item;
 
 //formato de los campos de los paquetes del s_routing_table
 bit [7:0]term_or_dir;//(terminal / direction / broadcast)
@@ -21,5 +18,4 @@ function new (string name = "packets");
 endfunction : new
 
 
-endclass: packets
-
+endclass:router_sequence_item 
