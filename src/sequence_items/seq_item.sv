@@ -1,5 +1,5 @@
-class seq_item #(parameter ADDR_WIDTH = 8, parameter DATA_WIDTH = 8, 
-				MAX_N_CYCLES=15) extends uvm_sequence_item;
+class seq_item #(parameter ADDR_WIDTH, parameter DATA_WIDTH, 
+				MAX_N_CYCLES) extends uvm_sequence_item;
 	
 
 	typedef enum logic [0:0] {
