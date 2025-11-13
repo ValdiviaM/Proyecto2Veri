@@ -20,10 +20,13 @@ class seq_item #(parameter ADDR_WIDTH = 8, parameter DATA_WIDTH = 8,
 	rand bit [DATA_WIDTH-1:0] data;
 	rand bit [$clog2(MAX_N_CYCLES)-1:0] cycles_between;
 	rand route_mode_e mode;
-
+	
 	// Flags
 	rand error_type_e msg_error;
 	rand bit broadcast;     // Si el mensaje es broadcast
+
+	//Salidas
+	bit [DATA_WIDTH-1:0] out_dut;
 
 	`uvm_object_utils_begin(seq_item)
 		`uvm_field_int(addr,          UVM_ALL_ON)
