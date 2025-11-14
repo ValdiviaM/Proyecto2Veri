@@ -2,26 +2,21 @@
 //Container of the entire UVM environment pkg.sv
 package router_pkg;
 
+// global parameters for UVM environment
+parameter int ADDR_WIDTH = 8;
+parameter int DATA_WIDTH = 8;
+parameter int MAX_N_CYCLES = 16;
+
   // Import UVM
   import uvm_pkg::*;
   `include "uvm_macros.svh"
 
   // --- Sequence items ---
-  `include "sequence_items/seq_item.sv"
+//  `include "sequence_items/seq_item.sv"
 
   // --- Sequences ---
-  `include "sequences/base_seq.sv"
+//  `include "sequences/base_seq.sv"
 
-  // Agent (router agent wrapper in /env/)
-  `include "env/agent.sv"
 
-  // --- Agent components ---
-  `include "router_agent/driver.sv"
-  `include "router_agent/monitor.sv"
-  `include "router_agent/sequencer.sv"
-
-  // --- Scoreboard components ---
-  `include "scoreboard/scoreboard.sv"
-  `include "scoreboard/subscriber.sv"
   
 endpackage : router_pkg

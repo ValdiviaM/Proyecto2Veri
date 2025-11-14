@@ -1,4 +1,4 @@
-interface mesh_gen_if #(parameter rows = 4, parameter colums = 4, parameter pckg_sz = 32, parameter fifo_depth = 4, parameter bdcst = {8{1'b1}})
+interface mesh_gen_if #(parameter ROWS = 4, parameter COLUMS = 4, parameter pckg_sz = 32, parameter fifo_depth = 4, parameter bdcst = {8{1'b1}})
 	(
 		input clk
 	);
@@ -14,7 +14,7 @@ interface mesh_gen_if #(parameter rows = 4, parameter colums = 4, parameter pckg
 
   // --- Clocking Block --- 
   // sentido de las senales
-  clocking cb @(posedge clock);
+  clocking cb @(posedge clk);
     default input #1 output #1;
     output data_out;
 	output pndng;
@@ -22,9 +22,9 @@ interface mesh_gen_if #(parameter rows = 4, parameter colums = 4, parameter pckg
     
 	input  clk;
 	input reset;
-	input data_out_i_in;
+	output data_out_i_in;
 	input pop;
-	input pndng_i_in;
+	output pndng_i_in;
   endclocking
 
 

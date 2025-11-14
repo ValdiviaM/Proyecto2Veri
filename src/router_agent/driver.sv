@@ -3,7 +3,7 @@ class router_driver extends uvm_driver#(seq_item) ;
 	// declare the neccessary uvm macros to register in the uvm classes !
 	`uvm_component_utils(router_driver)
 
-	virtual mesh_gen_if.TB  inf; //connection of modport
+	virtual mesh_gen_if  inf; //connection of modport
 	seq_item item;
 
 	// constructor 
@@ -32,7 +32,7 @@ class router_driver extends uvm_driver#(seq_item) ;
 		// build phase logic
 		`uvm_info("Driver Class","Run phase",UVM_HIGH);
 		forever begin 
-			reg_item = seq_item::type_id::create("reg_item",this);
+			item = seq_item::type_id::create("reg_item",this);
             
             //API used by the driver to interact with the sequencer "seq_item_port"
 			//get an item from sequencer using get_next method
@@ -50,15 +50,20 @@ class router_driver extends uvm_driver#(seq_item) ;
 	endtask 
 
     // Drive task
-    task drive(seq_item item);
-        @(posedge inf.cb);
-        inf.cb.reset         <= item.msg_error;
-        inf.cb.data_out_i_in <= item.data;
-        inf.cb.pndng_i_in    <= 1'b1;
+    task drive();
+	int unsigned port = 0;
 
-        repeat(item.cycles_between) @(posedge inf.cb);
+        @(vif.cb);
+	
 
-        inf.cb.pndng_i_in    <= 1'b0;
+        
+        vif.cb.data_out_i_in[port] <= item.data;
+        vif.cb.pndng_i_in[port]    <= 1'b1;
+	`uvm_info("Driver Class",$sformatf("Driving port=%0d data=%0h", port, item.data) , UVM_MEDIUM);
+        //wait a cycle
+	@(vif.cb)
+
+        vif.cb.pndng_i_in[port] <= 1'b0;
     endtask
 
 endclass : router_driver

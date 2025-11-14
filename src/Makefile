@@ -4,18 +4,24 @@
 # Root directories
 root_dir := $(PWD)
 bld_dir  := $(root_dir)/build
-src_dir  := $(root_dir)/src
+src_dir  := $(root_dir)
 
 # File groups
 dut_srcs := \
-  $(src_dir)/dut/fifo.sv \
-  $(src_dir)/dut/Library.sv \
   $(src_dir)/dut/Router_library.sv
 
 # UVM environment (only compile pkg + tests + tb)
 uvm_env := \
   $(src_dir)/interface/mesh_gen_if.sv \
   $(src_dir)/globals/pkg.sv \
+  $(src_dir)/sequence_items/seq_item.sv \
+  $(src_dir)/sequences/base_seq.sv \
+  $(src_dir)/router_agent/driver.sv \
+  $(src_dir)/router_agent/monitor.sv \
+  $(src_dir)/router_agent/sequencer.sv \
+  $(src_dir)/scoreboard/scoreboard.sv \
+  $(src_dir)/scoreboard/subscriber.sv \
+  $(src_dir)/env/agent.sv \
   $(src_dir)/tb.sv \
   $(src_dir)/tests/test.sv \
   $(src_dir)/tests/test_smoke.sv
@@ -44,16 +50,16 @@ endif
 
 # Include directories
 INC_DIRS := \
-  +incdir+$(src_dir) \
   +incdir+$(src_dir)/globals \
-  +incdir+$(src_dir)/dut \
-  +incdir+$(src_dir)/env \
   +incdir+$(src_dir)/interface \
-  +incdir+$(src_dir)/router_agent \
-  +incdir+$(src_dir)/scoreboard \
   +incdir+$(src_dir)/sequence_items \
   +incdir+$(src_dir)/sequences \
-  +incdir+$(src_dir)/tests
+  +incdir+$(src_dir)/router_agent \
+  +incdir+$(src_dir)/scoreboard \
+  +incdir+$(src_dir)/env \
+  +incdir+$(src_dir)/tests \
+  +incdir+$(src_dir)/dut
+
 
 # Synopsys environment setup
 SYNOPSYS_ENV := source /mnt/vol_NFS_rh003/estudiantes/archivos_config/synopsys_tools2.sh
