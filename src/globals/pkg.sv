@@ -7,10 +7,13 @@ package router_pkg;
   `include "uvm_macros.svh"
 
   // --- Sequence items ---
-  `include "sequence_items/packets.sv"
+  `include "sequence_items/seq_item.sv"
 
   // --- Sequences ---
   `include "sequences/base_seq.sv"
+
+  // Agent (router agent wrapper in /env/)
+  `include "env/agent.sv"
 
   // --- Agent components ---
   `include "router_agent/driver.sv"
@@ -20,5 +23,5 @@ package router_pkg;
   // --- Scoreboard components ---
   `include "scoreboard/scoreboard.sv"
   `include "scoreboard/subscriber.sv"
-
+  
 endpackage : router_pkg
