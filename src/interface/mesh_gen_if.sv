@@ -30,9 +30,15 @@ interface mesh_gen_if #(parameter ROWS = 4, parameter COLUMS = 4, parameter pckg
 
   // --- Modports (Conectores) ---
 	modport TB(clocking cb);
-	modport DUT (input  clk, reset,
-                 input  popin, data_out, pndng,
-                 output pop,   data_out_i_in, pndng_i_in);
+	modport MON (input clk, reset,
+                 input popin, data_out, pndng,
+                 input pop, data_out_i_in, pndng_i_in);
+    modport DUT (
+        input  clk, reset,                       // DUT recibe estos
+        input  pop, data_out_i_in, pndng_i_in,   // DUT recibe estos (inputs)
+        output popin, data_out, pndng            // DUT produce estos (outputs)
+    );
+
 	
 	
 	// Assertions protocol
