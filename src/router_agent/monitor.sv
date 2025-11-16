@@ -1,7 +1,11 @@
+import uvm_pkg::*;
+`include "uvm_macros.svh"
+import router_pkg::*;
+
 class router_monitor extends uvm_monitor;
     `uvm_component_utils(router_monitor)
     function new(string name="monitor", uvm_component parent=null);
-        super.new(name, parent)    
+        super.new(name, parent);    
     endfunction //new()
 
     uvm_analysis_port #(seq_item) mon_analysis_port;

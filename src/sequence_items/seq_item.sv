@@ -1,3 +1,7 @@
+import uvm_pkg::*;
+`include "uvm_macros.svh"
+import router_pkg::*;
+
 class seq_item #(parameter ADDR_WIDTH = router_pkg::ADDR_WIDTH, parameter DATA_WIDTH = router_pkg::DATA_WIDTH, parameter 
 				MAX_N_CYCLES = router_pkg::MAX_N_CYCLES) extends uvm_sequence_item;
 	
