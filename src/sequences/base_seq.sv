@@ -1,7 +1,7 @@
 
 class router_sequence #(parameter ADDR_WIDTH = 8,
                         parameter DATA_WIDTH = 8,
-                        parameter MAX_N_CYCLES = 15)
+                        parameter MAX_N_CYCLES = 16)
     extends uvm_sequence #(seq_item#(ADDR_WIDTH, DATA_WIDTH, MAX_N_CYCLES));
 	`uvm_object_utils(router_sequence)
 

@@ -12,19 +12,10 @@ dut_srcs := \
 
 # UVM environment (only compile pkg + tests + tb)
 uvm_env := \
-  $(src_dir)/interface/mesh_gen_if.sv \
-  $(src_dir)/globals/pkg.sv \
-  $(src_dir)/sequence_items/seq_item.sv \
-  $(src_dir)/sequences/base_seq.sv \
-  $(src_dir)/router_agent/driver.sv \
- # $(src_dir)/router_agent/monitor.sv \
-  $(src_dir)/router_agent/sequencer.sv \
-  $(src_dir)/scoreboard/scoreboard.sv \
-  $(src_dir)/scoreboard/subscriber.sv \
-  $(src_dir)/env/router_agent.sv \
-  $(src_dir)/tb.sv \
-  $(src_dir)/tests/test.sv \
-  $(src_dir)/tests/test_smoke.sv
+    $(src_dir)/interface/mesh_gen_if.sv\
+    $(src_dir)/globals/pkg.sv \
+    $(src_dir)/router_agent/driver.sv\
+    $(src_dir)/env/router_agent.sv
 
 # switches (macros)
 # Example usage: make run TEST=test_router DEBUG=1 GUI=1

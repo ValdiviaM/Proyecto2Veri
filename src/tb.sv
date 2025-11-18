@@ -1,7 +1,7 @@
 `timescale 1ns/1ps
 
-import uvm_pkg::*;
-import router_pkg::*;     
+
+
 `include "uvm_macros.svh"
 
 module tb;
@@ -15,7 +15,7 @@ module tb;
 
     initial begin
         // Give UVM the interface
-        uvm_config_db#(virtual mesh_gen_if.TB)::set(
+        uvm_config_db#(virtual mesh_gen_if)::set(
             null,
             "*",
             "vif",

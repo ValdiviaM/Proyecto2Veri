@@ -1,5 +1,3 @@
-import uvm_pkg::*;
-import router_pkg::*;
 
 class test_smoke extends uvm_test;
     `uvm_component_utils(test_smoke)
