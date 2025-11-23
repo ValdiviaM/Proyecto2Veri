@@ -15,7 +15,9 @@ uvm_env := \
     $(src_dir)/interface/mesh_gen_if.sv\
     $(src_dir)/globals/pkg.sv \
     $(src_dir)/router_agent/driver.sv\
-    $(src_dir)/env/router_agent.sv
+    $(src_dir)/env/router_agent.sv\
+	$(src_dir)/tests/test_smoke.sv\
+	$(src_dir)/tb.sv
 
 # switches (macros)
 # Example usage: make run TEST=test_router DEBUG=1 GUI=1
