@@ -1,78 +1,92 @@
-`include "uvm_macros.svh"
-import uvm_pkg::*;
-import router_pkg::*;
+// router_driver.sv
 
-// Driver class
+
 class router_driver extends uvm_driver #(seq_item#(ADDR_WIDTH, DATA_WIDTH, MAX_N_CYCLES));
   `uvm_component_utils(router_driver)
 
-  // virtual interface handle
   virtual mesh_gen_if vif;
   seq_item#(ADDR_WIDTH, DATA_WIDTH, MAX_N_CYCLES) req;
 
-
-  // constructor
-  function new(string name = "router_driver", uvm_component parent = null);
+  // Constructor
+  function new(string name="router_driver", uvm_component parent=null);
     super.new(name, parent);
-    `uvm_info("DRV", "Inside constructor", UVM_HIGH);
   endfunction
 
-  // build phase
+  // Build phase
   function void build_phase(uvm_phase phase);
     super.build_phase(phase);
-    `uvm_info("DRV", "build_phase", UVM_HIGH);
 
-    // get the interface from config DB
     if (!uvm_config_db#(virtual mesh_gen_if)::get(this, "", "vif", vif))
-      `uvm_fatal("DRV", "Cannot get virtual interface from config DB")
+      `uvm_fatal("DRV", "No VIF found in config DB!")
     else
-      `uvm_info("DRV", "Got virtual interface OK", UVM_LOW);
+      `uvm_info("DRV", "Virtual interface OK", UVM_LOW)
   endfunction
 
-  // run phase
+  // Main run loop
   task run_phase(uvm_phase phase);
     super.run_phase(phase);
-    `uvm_info("DRV", "Run phase", UVM_HIGH);
 
     forever begin
-      // create / reuse request item
-      if (req == null)
-        req = seq_item::type_id::create("req", this);
-
-      // Get item from sequencer
       seq_item_port.get_next_item(req);
-
-      `uvm_info("DRV",
-                $sformatf("Start driving: addr=%0d data=%0d mode=%0d",
-                          req.addr, req.data, req.mode),
-                UVM_MEDIUM);
-
-      // drive the transaction
       drive(req);
-
-      `uvm_info("DRV", "Finished Driving", UVM_HIGH);
       seq_item_port.item_done();
     end
   endtask
 
-  // Drive task
+  
+  // DRIVE 1 TRANSACTION (PROTOCOL-COMPLIANT)
+ 
   task drive(seq_item t);
-    int unsigned port = 0;
 
-    // wait for clocking block edge
+    int src_port;
+    bit [DATA_WIDTH-1:0] local_data;
+
+    // Select terminal: use t.src if present
+    src_port = (t.src < (ROWS*2 + COLUMS*2)) ? t.src : 0;
+
+    // Apply error type (simple example)
+    local_data = t.data;
+
+    if (t.msg_error == seq_item::HDR_ERROR)
+      local_data[DATA_WIDTH-1] = ~local_data[DATA_WIDTH-1]; // corrupt MSB
+
+    else if (t.msg_error == seq_item::PAY_ERROR)
+      local_data[0] = ~local_data[0]; // corrupt LSB
+
+    
+    // PROTOCOL STEP 1: Drive TB request: data + pndng_i_in
+    
     @(vif.cb);
 
-    vif.cb.data_out_i_in[port] <= t.data;
-    vif.cb.pndng_i_in[port]    <= 1'b1;
+    vif.cb.data_out_i_in[src_port] <= local_data;
+    vif.cb.pndng_i_in[src_port]    <= 1'b1;
 
     `uvm_info("DRV",
-              $sformatf("Driving port=%0d data=%0h", port, t.data),
-              UVM_MEDIUM);
+      $sformatf("Sending packet on port %0d  data=0x%0h  dst=%0d  mode=%0d  bdcst=%0b  err=%0d",
+                src_port, local_data, t.addr, t.mode, t.broadcast, t.msg_error),
+      UVM_MEDIUM);
 
-    // wait a cycle
+
+    // PROTOCOL STEP 2: Wait until DUT acknowledges with pop[src]
+    
     @(vif.cb);
+    wait (vif.cb.pop[src_port] == 1'b1);
 
-    vif.cb.pndng_i_in[port] <= 1'b0;
+    `uvm_info("DRV",
+      $sformatf("DUT acknowledged pop on port %0d", src_port),
+      UVM_LOW);
+
+    
+    // PROTOCOL STEP 3: Drop pndng_i_in after pop
+    
+    @(vif.cb);
+    vif.cb.pndng_i_in[src_port] <= 1'b0;
+
+    
+    // PROTOCOL STEP 4: Idle cycles = gap
+    
+    repeat (t.cycles_between) @(vif.cb);
+
   endtask
 
 endclass : router_driver

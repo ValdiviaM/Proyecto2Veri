@@ -1,6 +1,4 @@
-
-// router_sequence.sv
-
+// router_sequence.sv 
 class router_sequence #(parameter ADDR_WIDTH = 8,
                         parameter DATA_WIDTH = 8,
                         parameter MAX_N_CYCLES = 16)
@@ -9,74 +7,76 @@ class router_sequence #(parameter ADDR_WIDTH = 8,
   `uvm_object_utils(router_sequence)
 
 
-  // CONTROLLED FROM TESTS (KNOBS)
-  int num_trans        = 100;  // overridden by test_base
-  int src_terminal     = -1;   // -1 = randomized
-  int dst_terminal     = -1;   // -1 = randomized
+  // CONTROL FIELDS (set by base_test)
+  int num_trans        = 200;
+  int src_terminal     = -1;   // controlled by DRIVER
+  int dst_terminal     = -1;   // destination terminal
+  bit route_mode       = 1;    // 1=ROW_FIRST, 0=COL_FIRST
   bit force_broadcast  = 0;
   bit inject_error     = 0;
   bit reset_mid_tx     = 0;
   bit fifo_stress      = 0;
-  bit route_mode       = 1;    // default: ROW_FIRST
 
   function new(string name="router_sequence");
     super.new(name);
   endfunction
 
 
-  // MAIN BODY
+  // MAIN SEQUENCE BODY
   virtual task body();
 
-    `uvm_info("SEQ", 
-       $sformatf("router_sequence starting with %0d transactions", num_trans),
-       UVM_MEDIUM)
+    `uvm_info("SEQ", $sformatf("Starting sequence with %0d items", num_trans), UVM_MEDIUM)
 
-    for (int i=0; i<num_trans; i++) begin
+    for (int i = 0; i < num_trans; i++) begin
 
-      seq_item item;
-      item = seq_item::type_id::create($sformatf("item_%0d", i));
+      seq_item item = seq_item::type_id::create($sformatf("item_%0d", i));
 
       start_item(item);
-
       assert(item.randomize());
 
 
-      // APPLY FORCED FIELDS (TEST CONTROLS)
-      if (src_terminal != -1)
-        item.addr = src_terminal;
+      // APPLY CONTROL OVERRIDES
 
+      // DESTINATION terminal override
       if (dst_terminal != -1)
-        item.data = dst_terminal;
+        item.addr = dst_terminal;
 
+      // SRC terminal is overridden here for scoreboard reference
+      if (src_terminal != -1)
+        item.src = src_terminal;
+
+      // ROUTE MODE
+      item.mode = (route_mode) 
+                  ? seq_item::ROW_FIRST
+                  : seq_item::COL_FIRST;
+
+      // BROADCAST FORCED
       if (force_broadcast)
         item.broadcast = 1;
 
-      if (inject_error)
-        item.msg_error = seq_item::HAS_ERR;
-
-      // routing mode override
-      item.mode = (route_mode) 
-                  ? seq_item::ROW_FIRST 
-                  : seq_item::COL_FIRST;
+      // ERROR TYPE OVERRIDE
+      if (inject_error) begin
+        // Randomly pick header or payload error
+        if ($urandom_range(0,1))
+            item.msg_error = seq_item::HDR_ERROR;
+        else
+            item.msg_error = seq_item::PAY_ERROR;
+      end
 
       finish_item(item);
 
-      // reset injected in mid-transaction (Test 1.7)
-      if (reset_mid_tx && (i == num_trans/2)) begin
-         `uvm_info("SEQ", "Triggering mid-transfer reset", UVM_HIGH)
-         // driver or top_tb must observe this flag
-      end
+      // EXTRA EVENTS (stress and reset)
+      if (reset_mid_tx && i == num_trans/2)
+        `uvm_info("SEQ", "Mid-transfer reset requested", UVM_HIGH)
 
-      if ((i % 100) == 0)
-        `uvm_info("SEQ",
-                  $sformatf("Generated %0d / %0d items", i, num_trans),
-                  UVM_LOW)
+      if (fifo_stress && (i % 25 == 0))
+        `uvm_info("SEQ", "FIFO stress event triggered", UVM_LOW)
 
     end
 
-    `uvm_info("SEQ", "Sequence COMPLETED", UVM_MEDIUM)
+    `uvm_info("SEQ", "Sequence completed", UVM_MEDIUM)
 
-  endtask : body
+  endtask
 
-endclass : router_sequence
+endclass
 
