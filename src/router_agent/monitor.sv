@@ -25,11 +25,11 @@ class router_monitor extends uvm_monitor;
                 for (int i = 0; i < NUM_PORTS; i++) begin
                     
                     // 1. Monitor Injection (TB -> DUT)
-                    // Valid: pndng_i_in | Ack: pop (DUT accepted it)
-                    if (vif.pndng_i_in[i] === 1'b1 && vif.pop[i] === 1'b1) begin
+                    // Valid: pndng_i_in | Ack: popin (DUT Output saying "I took it")
+                    // *** FIX: Changed pop to popin ***
+                    if (vif.pndng_i_in[i] === 1'b1 && vif.popin[i] === 1'b1) begin
                         seq_item item_in = seq_item::type_id::create("item_in");
                         
-                        // Add Print with Semicolon
                         `uvm_info("MON", $sformatf("Detected INJECTION on Port %0d", i), UVM_LOW); 
 
                         item_in.data = vif.data_out_i_in[i];
@@ -38,11 +38,11 @@ class router_monitor extends uvm_monitor;
                     end
 
                     // 2. Monitor Ejection (DUT -> TB)
-                    // Valid: pndng | Ack: popin (TB accepted it)
-                    if (vif.pndng[i] === 1'b1 && vif.popin[i] === 1'b1) begin
+                    // Valid: pndng | Ack: pop (TB/Dummy Consumer saying "I read it")
+                    // *** FIX: Changed popin to pop ***
+                    if (vif.pndng[i] === 1'b1 && vif.pop[i] === 1'b1) begin
                         seq_item item_out = seq_item::type_id::create("item_out");
                         
-                        // Add Print with Semicolon (Fixed text to OUTPUT)
                         `uvm_info("MON", $sformatf("Detected OUTPUT on Port %0d", i), UVM_LOW);
 
                         item_out.data = vif.data_out[i];

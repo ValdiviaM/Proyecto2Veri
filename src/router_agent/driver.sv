@@ -59,19 +59,19 @@ class router_driver extends uvm_driver #(seq_item);
         vif.drv_data_out_i_in[port] <= t.data;
         vif.drv_pndng_i_in[port]    <= 1'b1;
         
-        // Add Print with Semicolon
         `uvm_info("DRV", $sformatf("Driving Port %0d with Data %0h", port, t.data), UVM_LOW);
 
-        // 2. Wait for ACK from DUT (pop)
+        // 2. Wait for ACK from DUT
+        // *** CRITICAL FIX: Wait for 'popin' (DUT Output Ack), NOT 'pop' ***
         fork
             begin : wait_for_ack
                 do begin
                     @(posedge vif.clk);
-                end while (vif.pop[port] === 1'b0); 
+                end while (vif.popin[port] === 1'b0); // Fixed!
             end
             begin : watchdog
                 repeat(100) @(posedge vif.clk);
-                `uvm_error("DRV", $sformatf("Timeout waiting for pop on port %0d", port))
+                `uvm_error("DRV", $sformatf("Timeout waiting for popin (Ack) on port %0d", port))
             end
         join_any
         disable fork;
