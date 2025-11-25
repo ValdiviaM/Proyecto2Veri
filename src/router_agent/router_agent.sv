@@ -1,6 +1,3 @@
-`include "uvm_macros.svh"
-import uvm_pkg::*;
-import router_pkg::*;
 
 class router_agent extends uvm_agent;
   `uvm_component_utils(router_agent)

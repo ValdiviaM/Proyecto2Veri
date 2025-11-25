@@ -1,7 +1,4 @@
 // router_monitor.sv
-
-`include "uvm_macros.svh"
-import uvm_pkg::*;
 import router_pkg::*;
 
 class router_monitor extends uvm_monitor;

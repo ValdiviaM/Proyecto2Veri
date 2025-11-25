@@ -7,7 +7,9 @@ package router_pkg;
   parameter int ADDR_WIDTH  = 8;
   parameter int DATA_WIDTH  = 8;
   parameter int MAX_N_CYCLES = 16;
-
+  parameter int PCKG_SZ = 40;
+  parameter int COLUMS = 4;
+  parameter int ROWS = 4;
 
 
   // Sequence items
@@ -22,14 +24,9 @@ package router_pkg;
   // Driver / Sequencer / Monitor
 
   `include "../router_agent/sequencer.sv"
-  `include "../router_agent/monitor.sv"
 
 
- 
 
-  // Scoreboard
-  `include "../scoreboard/scoreboard.sv"
-  //`include "../scoreboard/subscriber.sv"
 
 endpackage : router_pkg
 

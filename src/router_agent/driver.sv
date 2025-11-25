@@ -1,5 +1,4 @@
-
-// router_driver.sv  
+// router_driver.sv
 
 `include "uvm_macros.svh"
 import uvm_pkg::*;
@@ -10,7 +9,8 @@ class router_driver extends uvm_driver #(seq_item);
 
   // Debe coincidir con el modport TB de la interfaz
   virtual mesh_gen_if #(ROWS, COLUMS, DATA_WIDTH).TB vif;
-
+  
+  localparam int NUM_PORTS = ROWS*2 + COLUMS*2;
   seq_item req;
 
   // -------------------------------------------------------------
@@ -18,7 +18,7 @@ class router_driver extends uvm_driver #(seq_item);
     super.new(name, parent);
   endfunction
 
-
+  // -------------------------------------------------------------
   function void build_phase(uvm_phase phase);
     super.build_phase(phase);
 
@@ -30,14 +30,14 @@ class router_driver extends uvm_driver #(seq_item);
       `uvm_info("DRV", "Driver VIF OK", UVM_LOW)
   endfunction
 
-
+  // -------------------------------------------------------------
   task run_phase(uvm_phase phase);
 
     // Inicializar entradas TB?DUT para evitar X
     for (int i = 0; i < NUM_PORTS; i++) begin
       vif.drv_pndng_i_in[i]    <= 1'b0;
       vif.drv_data_out_i_in[i] <= '0;
-      vif.drv_pop[i]           <= 1'b0;
+      // NO tocamos drv_popin aquí: lo maneja el dummy consumer de la IF
     end
 
     // Esperar a que se libere el reset
@@ -53,13 +53,13 @@ class router_driver extends uvm_driver #(seq_item);
     end
   endtask
 
-
+  // -------------------------------------------------------------
   // DRIVE ONE TRANSACTION
-
+  // -------------------------------------------------------------
   task drive(seq_item t);
 
     int port;
-    reg [DATA_WIDTH-1:0] payload;   // <-- usar reg, no bit/logic
+    reg [DATA_WIDTH-1:0] payload;   // usar reg para compatibilidad VCS
 
     // Puerto de origen
     port = t.src;
@@ -78,9 +78,7 @@ class router_driver extends uvm_driver #(seq_item);
       default: ; // NO_ERROR
     endcase
 
-
     // Paso 1  Assert petición TB?DUT
-
     @(posedge vif.clk);
 
     vif.drv_data_out_i_in[port] <= payload;
@@ -90,7 +88,6 @@ class router_driver extends uvm_driver #(seq_item);
       $sformatf("SEND: port=%0d data=0x%0h dst=%0d mode=%0d bdcst=%0b err=%0d",
                 port, payload, t.addr, t.mode, t.broadcast, t.msg_error),
       UVM_MEDIUM)
-
 
     // Paso 2  Esperar ACK del DUT (pop)
     fork
@@ -111,15 +108,11 @@ class router_driver extends uvm_driver #(seq_item);
     join_any
     disable fork;
 
-
     // Paso 3  Bajar petición
-
     @(posedge vif.clk);
     vif.drv_pndng_i_in[port] <= 1'b0;
 
-
     // Paso 4  Gap entre paquetes
-
     repeat (t.cycles_between) @(posedge vif.clk);
 
   endtask : drive
