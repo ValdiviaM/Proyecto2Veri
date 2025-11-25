@@ -18,22 +18,23 @@ class router_agent extends uvm_agent;
   function void build_phase(uvm_phase phase);
     super.build_phase(phase);
 
-    // Full interface from TB
-    if (!uvm_config_db#(virtual mesh_gen_if #(ROWS, COLUMS, DATA_WIDTH))::get(this, "", "vif", vif))
+    if (!uvm_config_db#(
+        virtual mesh_gen_if #(ROWS, COLUMS, DATA_WIDTH)
+       )::get(this, "", "vif", vif))
       `uvm_fatal("AGT", "No vif found in agent")
 
-    // Create child components
+    // Create components
     m_sequencer = router_sequencer::type_id::create("m_sequencer", this);
-    m_driver    = router_driver   ::type_id::create("m_driver",    this);
-    m_monitor   = router_monitor  ::type_id::create("m_monitor",   this);
+    m_driver    = router_driver   ::type_id::create("m_driver"   , this);
+    m_monitor   = router_monitor  ::type_id::create("m_monitor"  , this);
 
-    // PASS MODPORTS, NOT FULL IF
+    // Pass correct modports
     uvm_config_db#(
-        virtual mesh_gen_if #(ROWS, COLUMS, DATA_WIDTH).TB
+      virtual mesh_gen_if #(ROWS, COLUMS, DATA_WIDTH).TB
     )::set(this, "m_driver",  "vif", vif.TB);
 
     uvm_config_db#(
-        virtual mesh_gen_if #(ROWS, COLUMS, DATA_WIDTH).MON
+      virtual mesh_gen_if #(ROWS, COLUMS, DATA_WIDTH).MON
     )::set(this, "m_monitor", "vif", vif.MON);
   endfunction
 

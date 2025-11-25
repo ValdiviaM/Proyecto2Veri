@@ -16,7 +16,7 @@ uvm_env := \
     $(src_dir)/globals/pkg.sv \
     $(src_dir)/router_agent/driver.sv\
     $(root_dir)/router_agent/router_agent.sv \
-    $(src_dir)/env/router_agent.sv\
+    $(src_dir)/env/router_env.sv\
     $(root_dir)/scoreboard/scoreboard.sv \
     $(root_dir)/router_agent/monitor.sv \
     $(root_dir)/tests/base_test.sv \

@@ -1,5 +1,5 @@
 
-// router_driver.sv 
+// router_driver.sv  
 
 `include "uvm_macros.svh"
 import uvm_pkg::*;
@@ -8,7 +8,7 @@ import router_pkg::*;
 class router_driver extends uvm_driver #(seq_item);
   `uvm_component_utils(router_driver)
 
-  // Must match the TB modport passed by agent
+  // Debe coincidir con el modport TB de la interfaz
   virtual mesh_gen_if #(ROWS, COLUMS, DATA_WIDTH).TB vif;
 
   seq_item req;
@@ -18,7 +18,7 @@ class router_driver extends uvm_driver #(seq_item);
     super.new(name, parent);
   endfunction
 
-  // -------------------------------------------------------------
+
   function void build_phase(uvm_phase phase);
     super.build_phase(phase);
 
@@ -30,18 +30,19 @@ class router_driver extends uvm_driver #(seq_item);
       `uvm_info("DRV", "Driver VIF OK", UVM_LOW)
   endfunction
 
-  // -------------------------------------------------------------
+
   task run_phase(uvm_phase phase);
 
-    // Initialize all TB?DUT inputs to avoid X propagation
+    // Inicializar entradas TB?DUT para evitar X
     for (int i = 0; i < NUM_PORTS; i++) begin
       vif.drv_pndng_i_in[i]    <= 1'b0;
       vif.drv_data_out_i_in[i] <= '0;
+      vif.drv_pop[i]           <= 1'b0;
     end
 
-    // Mandatory: wait for reset to go low
+    // Esperar a que se libere el reset
     @(posedge vif.clk);
-    wait(vif.reset == 1'b0);
+    wait (vif.reset == 1'b0);
 
     `uvm_info("DRV", "Reset released  Driver ACTIVE", UVM_LOW)
 
@@ -57,24 +58,28 @@ class router_driver extends uvm_driver #(seq_item);
 
   task drive(seq_item t);
 
-    int port = t.src;
+    int port;
+    reg [DATA_WIDTH-1:0] payload;   // <-- usar reg, no bit/logic
+
+    // Puerto de origen
+    port = t.src;
 
     if (port >= NUM_PORTS) begin
       `uvm_error("DRV", $sformatf("Invalid source port %0d", port))
       return;
     end
 
-    // Compute payload, apply errors
-    bit [DATA_WIDTH-1:0] payload = t.data;
+    // Payload + errores
+    payload = t.data;
 
     case (t.msg_error)
       seq_item::HDR_ERROR: payload[DATA_WIDTH-1] = ~payload[DATA_WIDTH-1];
       seq_item::PAY_ERROR: payload[0]            = ~payload[0];
-      default: /* NO_ERROR */ ;
+      default: ; // NO_ERROR
     endcase
 
 
-    // Step 1  Assert TB request to DUT
+    // Paso 1  Assert petición TB?DUT
 
     @(posedge vif.clk);
 
@@ -87,10 +92,9 @@ class router_driver extends uvm_driver #(seq_item);
       UVM_MEDIUM)
 
 
-    // Step 2  Wait DUT ACK (pop)
-
+    // Paso 2  Esperar ACK del DUT (pop)
     fork
-      // ACK detection
+      // ACK
       begin : wait_ack
         while (vif.pop[port] == 1'b0) @(posedge vif.clk);
         `uvm_info("DRV",
@@ -98,7 +102,7 @@ class router_driver extends uvm_driver #(seq_item);
           UVM_LOW)
       end
 
-      // Watchdog (timeout)
+      // Time-out
       begin : watchdog
         repeat (200) @(posedge vif.clk);
         `uvm_error("DRV",
@@ -108,13 +112,13 @@ class router_driver extends uvm_driver #(seq_item);
     disable fork;
 
 
-    // Step 3  Drop request
+    // Paso 3  Bajar petición
 
     @(posedge vif.clk);
     vif.drv_pndng_i_in[port] <= 1'b0;
 
 
-    // Step 4  Inter-packet delay
+    // Paso 4  Gap entre paquetes
 
     repeat (t.cycles_between) @(posedge vif.clk);
 

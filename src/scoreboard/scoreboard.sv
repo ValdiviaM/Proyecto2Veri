@@ -4,21 +4,22 @@
 import uvm_pkg::*;
 import router_pkg::*;
 
+`uvm_analysis_imp_decl(_in)
+`uvm_analysis_imp_decl(_out)
+
 class scoreboard extends uvm_component;
   `uvm_component_utils(scoreboard)
 
-  // Imp ports
-  uvm_analysis_imp #(seq_item, scoreboard) imp_in;
-  uvm_analysis_imp #(seq_item, scoreboard) imp_out;
+  // Declare the two analysis imps
+  uvm_analysis_imp_in #(seq_item, scoreboard)  imp_in;
+  uvm_analysis_imp_out #(seq_item, scoreboard) imp_out;
 
-  // DB por data (simple)
   typedef struct {
     time time_in;
     int  src_port;
-    bit  [DATA_WIDTH-1:0] data;
+    bit [DATA_WIDTH-1:0] data;
   } pkt_info_t;
 
-  // Clave: data (en un diseño real usarías ID)
   pkt_info_t in_db [bit [DATA_WIDTH-1:0]];
 
   function new(string name="scoreboard", uvm_component parent=null);
@@ -27,35 +28,51 @@ class scoreboard extends uvm_component;
 
   function void build_phase(uvm_phase phase);
     super.build_phase(phase);
+
     imp_in  = new("imp_in",  this);
     imp_out = new("imp_out", this);
   endfunction
 
-  // Entrada
-  function void write(seq_item t); // se usa para imp_in
+
+
+  //  IMP-IN maps to: write_in()
+
+  function void write_in(seq_item t);
     pkt_info_t info;
+
     info.time_in  = $time;
     info.src_port = t.src;
     info.data     = t.data;
+
     in_db[t.data] = info;
-    `uvm_info("SCB", $sformatf("IN: data=0x%0h src=%0d", t.data, t.src), UVM_MEDIUM)
+
+    `uvm_info("SCB",
+      $sformatf("IN: data=0x%0h src=%0d", t.data, t.src),
+      UVM_MEDIUM)
   endfunction
 
-  // Sobrecarga para la salida (imp_out)
+
+
+  //  IMP-OUT maps to: write_out()
+
   function void write_out(seq_item t);
+
     bit [DATA_WIDTH-1:0] key = t.out_dut;
 
     if (!in_db.exists(key)) begin
-      `uvm_error("SCB", $sformatf("OUT: data=0x%0h no tiene match en IN", key))
+      `uvm_error("SCB",
+        $sformatf("OUT: data=0x%0h has no matching IN", key))
       return;
     end
 
     pkt_info_t exp = in_db[key];
     in_db.delete(key);
 
-    `uvm_info("SCB", $sformatf("OUT: data=0x%0h exp_src=%0d got_port=%0d",
-                               key, exp.src_port, t.out_port), UVM_MEDIUM)
-    // Aquí podrías agregar referencia XY ? puerto, etc.
+    `uvm_info("SCB",
+      $sformatf("OUT: data=0x%0h exp_src=%0d got_port=%0d",
+                key, exp.src_port, t.out_port),
+      UVM_MEDIUM);
+
   endfunction
 
 endclass

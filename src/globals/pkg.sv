@@ -22,13 +22,13 @@ package router_pkg;
   // Driver / Sequencer / Monitor
 
   `include "../router_agent/sequencer.sv"
-  //`include "../router_agent/monitor.sv"
+  `include "../router_agent/monitor.sv"
 
 
  
 
   // Scoreboard
-  //`include "../scoreboard/scoreboard.sv"
+  `include "../scoreboard/scoreboard.sv"
   //`include "../scoreboard/subscriber.sv"
 
 endpackage : router_pkg
