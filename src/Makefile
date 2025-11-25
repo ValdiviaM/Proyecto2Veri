@@ -20,7 +20,7 @@ uvm_env := \
     $(root_dir)/scoreboard/scoreboard.sv \
     $(src_dir)/env/router_env.sv\
     $(root_dir)/tests/base_test.sv \
-    $(root_dir)/tests/RouteRowFirstTest.sv \
+    $(root_dir)/tests/RouteRowFirstTest.sv\
     $(src_dir)/tb_top.sv
 
 # switches (macros)
@@ -87,6 +87,7 @@ run: compile
 		+UVM_VERBOSITY=UVM_MEDIUM \
 		+UVM_TESTNAME=$(TEST) \
 		+UVM_CONFIG_DB_TRACE \
+		+UVM_TESTNAMES \
 		$(GUI_FLAG)
 
 clean:

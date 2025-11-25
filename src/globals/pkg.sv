@@ -18,13 +18,12 @@ package router_pkg;
 
   // Sequences
   `include "../sequences/base_seq.sv"
-  // `include "../sequences/router_sequence.sv"
+
 
 
   // Driver / Sequencer / Monitor
 
   `include "../router_agent/sequencer.sv"
-
 
 
 

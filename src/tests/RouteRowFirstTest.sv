@@ -1,3 +1,8 @@
+// tests/RouteRowFirstTest.sv
+`include "uvm_macros.svh"
+import uvm_pkg::*;
+import router_pkg::*;
+
 class RouteRowFirstTest extends base_test;
   `uvm_component_utils(RouteRowFirstTest)
 
@@ -9,7 +14,7 @@ class RouteRowFirstTest extends base_test;
     super.build_phase(phase);
 
     cfg_mode     = 1;     // ROW_FIRST
-    cfg_num_msgs = 200;   // por ejemplo
+    cfg_num_msgs = 200;
 
     `uvm_info("TEST", "RouteRowFirstTest configurado (ROW_FIRST)", UVM_LOW)
   endfunction

@@ -47,7 +47,7 @@ module tb_top;
         virtual mesh_gen_if #(ROWS, COLUMS, PCKG_SZ).MON
       )::set(null, "*", "vif", vif.MON);
 
-      run_test();
+      run_test("RouteRowFirstTest.sv");
   end
 
 endmodule
