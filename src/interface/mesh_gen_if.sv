@@ -50,20 +50,31 @@ interface mesh_gen_if #(
       end
     endgenerate
 
-    // ============================================================
+// ============================================================
     // 3. DUMMY CONSUMER (Auto-Ack for DUT Outputs)
     // ============================================================
-    // When the Router tries to output data (pndng high), we assert 
-    // pop (Ack) so the router doesn't stall.
+    // OLD (Incorrect - causing 1 cycle delay error):
+    /*
     always @(posedge clk) begin
         if (reset) begin
             for (int k = 0; k < ROWS*2+COLUMS*2; k++)
                 drv_pop[k] <= 1'b0;
         end else begin
-            for (int k = 0; k < ROWS*2+COLUMS*2; k++) begin
-                // Simple handshake: If valid (pndng), we ack (pop)
+            for (int k = 0; k < ROWS*2+COLUMS*2; k++)
                 drv_pop[k] <= pndng[k]; 
-            end
+        end
+    end
+    */
+
+    // - Combinatorial):
+    // Immediately assert pop if pndng is high.
+    // When DUT drops pndng, pop drops instantly.
+    always_comb begin
+        for (int k = 0; k < ROWS*2+COLUMS*2; k++) begin
+            if (reset)
+                drv_pop[k] = 1'b0;
+            else
+                drv_pop[k] = pndng[k]; 
         end
     end
 
