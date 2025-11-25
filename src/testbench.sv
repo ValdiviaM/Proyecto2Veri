@@ -97,7 +97,7 @@ endinterface
     parameter ROWS = 4;
     parameter COLUMS = 4;
     parameter ADDR_WIDTH = 32; 
-    parameter DATA_WIDTH = 32;
+    parameter DATA_WIDTH = 40;
     parameter MAX_N_CYCLES = 16;
     parameter NUM_PORTS = (ROWS*2) + (COLUMS*2);
 
@@ -341,28 +341,35 @@ endinterface
         endfunction
     
         virtual task run_phase(uvm_phase phase);
-            forever begin
-                @(posedge vif.clk);
-                if (!vif.reset) begin
-                    for (int i = 0; i < NUM_PORTS; i++) begin
-                        // Monitor de Entrada (Driver -> DUT)
-                        if (vif.pndng_i_in[i] && vif.pop[i]) begin
-                            seq_item item_in = seq_item::type_id::create("item_in");
-                            item_in.data = vif.data_out_i_in[i];
-                            item_in.addr = i; 
-                            ap_in.write(item_in);
-                        end
-    
-                        // Monitor de Salida (DUT -> TB)
-                        if (vif.pndng[i] && vif.popin[i]) begin
-                            seq_item item_out = seq_item::type_id::create("item_out");
-                            item_out.data = vif.data_out[i];
-                            item_out.addr = i;
-                            ap_out.write(item_out);
-                        end
+        forever begin
+            @(posedge vif.clk);
+            if (!vif.reset) begin
+                for (int i = 0; i < NUM_PORTS; i++) begin
+                    
+                    // ---------------------------------------------------------
+                    // CORRECCIÓN 1: Monitor de Entrada (Driver -> DUT)
+                    // Valid: pndng_i_in | Ack: popin (Señal que viene del DUT indicando que aceptó)
+                    // ---------------------------------------------------------
+                    if (vif.pndng_i_in[i] === 1'b1 && vif.popin[i] === 1'b1) begin
+                        seq_item item_in = seq_item::type_id::create("item_in");
+                        item_in.data = vif.data_out_i_in[i];
+                        item_in.addr = i; 
+                        ap_in.write(item_in);
+                    end
+
+                    // ---------------------------------------------------------
+                    // CORRECCIÓN 2: Monitor de Salida (DUT -> TB)
+                    // Valid: pndng | Ack: pop (Señal que viene del TB indicando que leyó)
+                    // ---------------------------------------------------------
+                    if (vif.pndng[i] === 1'b1 && vif.pop[i] === 1'b1) begin
+                        seq_item item_out = seq_item::type_id::create("item_out");
+                        item_out.data = vif.data_out[i];
+                        item_out.addr = i;
+                        ap_out.write(item_out);
                     end
                 end
             end
+        end
         endtask 
     endclass
 
@@ -407,9 +414,10 @@ endinterface
         endfunction
     
         // Extractor de ID basado en tu DUT [MSB-26 : MSB-33]
-        function int get_packet_id(bit [DATA_WIDTH-1:0] data);
-            return data[(DATA_WIDTH - 26) -: 8]; 
-        endfunction
+    function int get_packet_id(bit [DATA_WIDTH-1:0] data);
+        // Sintaxis part-select indexada: [start_bit -: width]
+        return data[(DATA_WIDTH - 26) -: 8]; 
+    endfunction
     
         virtual function void write_in(seq_item item);
             int pid = get_packet_id(item.data);
@@ -601,7 +609,7 @@ module tb_top;
     // Parámetros
     parameter ROWS = 4;
     parameter COLUMS = 4;
-    parameter PCK_SZ = 32;
+    parameter PCK_SZ = 40;
 
     bit clk;
     
