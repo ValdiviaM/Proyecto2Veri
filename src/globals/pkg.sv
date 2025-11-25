@@ -43,6 +43,7 @@ package router_pkg;
 
   // E. Scoreboard (Needs seq_item)
   `include "../scoreboard/scoreboard.sv"
+  `include "../scoreboard/router_subscriber.sv" 
 
   // F. Environment (Needs agent, scoreboard)
   `include "../env/router_env.sv"

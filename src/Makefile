@@ -49,6 +49,9 @@ INC_DIRS := \
 # Synopsys Setup (Adjust if necessary)
 SYNOPSYS_ENV := source /mnt/vol_NFS_rh003/estudiantes/archivos_config/synopsys_tools2.sh
 
+#Define the flags for coverage 
+COV_OPTS := -cm line+tgl+cond+fsm+branch+assert
+
 # Targets
 $(bld_dir):
 	mkdir -p $(bld_dir)
@@ -65,6 +68,7 @@ compile: $(bld_dir)
 		+define+UVM_CMDLINE_NO_DPI \
 		+define+UVM_REGEX_NO_DPI \
 		$(DEBUG_DEF) \
+                $(COV_OPTS) \
 		-l vcs_compile.log \
 		-o simv
 
@@ -75,11 +79,18 @@ run: compile
 		+UVM_VERBOSITY=UVM_MEDIUM \
 		+UVM_TESTNAME=$(TEST) \
 		+UVM_CONFIG_DB_TRACE \
-		$(GUI_FLAG)
-
+		$(GUI_FLAG)\
+                $(COV_OPTS)
 clean:
 	rm -rf $(bld_dir) *.log *.vcd *.key
 
 lint:
 	$(SYNOPSYS_ENV); \
 	vcs -sverilog -lint=TFIPC-L $(dut_srcs) $(uvm_env) $(INC_DIRS)
+
+#Add a target to view the report
+report:
+	cd $(bld_dir); \
+	$(SYNOPSYS_ENV); \
+	urg -dir simv.vdb -format text; \
+	cat urgReport/dashboard.txt
