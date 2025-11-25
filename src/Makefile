@@ -15,9 +15,13 @@ uvm_env := \
     $(src_dir)/interface/mesh_gen_if.sv\
     $(src_dir)/globals/pkg.sv \
     $(src_dir)/router_agent/driver.sv\
+    $(root_dir)/router_agent/router_agent.sv \
     $(src_dir)/env/router_agent.sv\
-	$(src_dir)/tests/test_smoke.sv\
-	$(src_dir)/tb.sv
+    $(root_dir)/scoreboard/scoreboard.sv \
+    $(root_dir)/router_agent/monitor.sv \
+    $(root_dir)/tests/base_test.sv \
+    $(root_dir)/tests/RouteRowFirstTest.sv \
+    $(src_dir)/tb.sv
 
 # switches (macros)
 # Example usage: make run TEST=test_router DEBUG=1 GUI=1
@@ -69,10 +73,7 @@ compile: $(bld_dir)
 		$(INC_DIRS) \
 		-timescale=1ns/1ps \
 		$(dut_srcs) \
-                $(uvm_env) \
-		$(src_dir)/tb.sv \
-		$(src_dir)/tests/test.sv \
-		$(src_dir)/tests/test_smoke.sv \
+        $(uvm_env) \
 		+define+UVM_CMDLINE_NO_DPI \
 		+define+UVM_REGEX_NO_DPI \
 		$(DEBUG_DEF) $(FSDB_DEF) $(PATTERN) \
@@ -121,4 +122,5 @@ help:
 	@echo "  make clean                -> clean build/"
 	@echo "  make lint                 -> run lint check"
 	@echo "  make cov                  -> open coverage"
+
 

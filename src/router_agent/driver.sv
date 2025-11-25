@@ -1,30 +1,49 @@
-// router_driver.sv
 
+// router_driver.sv 
 
-class router_driver extends uvm_driver #(seq_item#(ADDR_WIDTH, DATA_WIDTH, MAX_N_CYCLES));
+`include "uvm_macros.svh"
+import uvm_pkg::*;
+import router_pkg::*;
+
+class router_driver extends uvm_driver #(seq_item);
   `uvm_component_utils(router_driver)
 
-  virtual mesh_gen_if vif;
-  seq_item#(ADDR_WIDTH, DATA_WIDTH, MAX_N_CYCLES) req;
+  // Must match the TB modport passed by agent
+  virtual mesh_gen_if #(ROWS, COLUMS, DATA_WIDTH).TB vif;
 
-  // Constructor
+  seq_item req;
+
+  // -------------------------------------------------------------
   function new(string name="router_driver", uvm_component parent=null);
     super.new(name, parent);
   endfunction
 
-  // Build phase
+  // -------------------------------------------------------------
   function void build_phase(uvm_phase phase);
     super.build_phase(phase);
 
-    if (!uvm_config_db#(virtual mesh_gen_if)::get(this, "", "vif", vif))
-      `uvm_fatal("DRV", "No VIF found in config DB!")
+    if (!uvm_config_db#(
+          virtual mesh_gen_if #(ROWS, COLUMS, DATA_WIDTH).TB
+        )::get(this, "", "vif", vif))
+      `uvm_fatal("DRV", "Driver could not get TB modport VIF")
     else
-      `uvm_info("DRV", "Virtual interface OK", UVM_LOW)
+      `uvm_info("DRV", "Driver VIF OK", UVM_LOW)
   endfunction
 
-  // Main run loop
+  // -------------------------------------------------------------
   task run_phase(uvm_phase phase);
-    super.run_phase(phase);
+
+    // Initialize all TB?DUT inputs to avoid X propagation
+    for (int i = 0; i < NUM_PORTS; i++) begin
+      vif.drv_pndng_i_in[i]    <= 1'b0;
+      vif.drv_data_out_i_in[i] <= '0;
+    end
+
+    // Mandatory: wait for reset to go low
+    @(posedge vif.clk);
+    wait(vif.reset == 1'b0);
+
+    `uvm_info("DRV", "Reset released  Driver ACTIVE", UVM_LOW)
 
     forever begin
       seq_item_port.get_next_item(req);
@@ -33,61 +52,73 @@ class router_driver extends uvm_driver #(seq_item#(ADDR_WIDTH, DATA_WIDTH, MAX_N
     end
   endtask
 
-  
-  // DRIVE 1 TRANSACTION (PROTOCOL-COMPLIANT)
- 
+
+  // DRIVE ONE TRANSACTION
+
   task drive(seq_item t);
 
-    int src_port;
-    bit [DATA_WIDTH-1:0] local_data;
+    int port = t.src;
 
-    // Select terminal: use t.src if present
-    src_port = (t.src < (ROWS*2 + COLUMS*2)) ? t.src : 0;
+    if (port >= NUM_PORTS) begin
+      `uvm_error("DRV", $sformatf("Invalid source port %0d", port))
+      return;
+    end
 
-    // Apply error type (simple example)
-    local_data = t.data;
+    // Compute payload, apply errors
+    bit [DATA_WIDTH-1:0] payload = t.data;
 
-    if (t.msg_error == seq_item::HDR_ERROR)
-      local_data[DATA_WIDTH-1] = ~local_data[DATA_WIDTH-1]; // corrupt MSB
-
-    else if (t.msg_error == seq_item::PAY_ERROR)
-      local_data[0] = ~local_data[0]; // corrupt LSB
-
-    
-    // PROTOCOL STEP 1: Drive TB request: data + pndng_i_in
-    
-    @(vif.cb);
-
-    vif.cb.data_out_i_in[src_port] <= local_data;
-    vif.cb.pndng_i_in[src_port]    <= 1'b1;
-
-    `uvm_info("DRV",
-      $sformatf("Sending packet on port %0d  data=0x%0h  dst=%0d  mode=%0d  bdcst=%0b  err=%0d",
-                src_port, local_data, t.addr, t.mode, t.broadcast, t.msg_error),
-      UVM_MEDIUM);
+    case (t.msg_error)
+      seq_item::HDR_ERROR: payload[DATA_WIDTH-1] = ~payload[DATA_WIDTH-1];
+      seq_item::PAY_ERROR: payload[0]            = ~payload[0];
+      default: /* NO_ERROR */ ;
+    endcase
 
 
-    // PROTOCOL STEP 2: Wait until DUT acknowledges with pop[src]
-    
-    @(vif.cb);
-    wait (vif.cb.pop[src_port] == 1'b1);
+    // Step 1  Assert TB request to DUT
+
+    @(posedge vif.clk);
+
+    vif.drv_data_out_i_in[port] <= payload;
+    vif.drv_pndng_i_in[port]    <= 1'b1;
 
     `uvm_info("DRV",
-      $sformatf("DUT acknowledged pop on port %0d", src_port),
-      UVM_LOW);
+      $sformatf("SEND: port=%0d data=0x%0h dst=%0d mode=%0d bdcst=%0b err=%0d",
+                port, payload, t.addr, t.mode, t.broadcast, t.msg_error),
+      UVM_MEDIUM)
 
-    
-    // PROTOCOL STEP 3: Drop pndng_i_in after pop
-    
-    @(vif.cb);
-    vif.cb.pndng_i_in[src_port] <= 1'b0;
 
-    
-    // PROTOCOL STEP 4: Idle cycles = gap
-    
-    repeat (t.cycles_between) @(vif.cb);
+    // Step 2  Wait DUT ACK (pop)
 
-  endtask
+    fork
+      // ACK detection
+      begin : wait_ack
+        while (vif.pop[port] == 1'b0) @(posedge vif.clk);
+        `uvm_info("DRV",
+          $sformatf("ACK from DUT on port %0d", port),
+          UVM_LOW)
+      end
+
+      // Watchdog (timeout)
+      begin : watchdog
+        repeat (200) @(posedge vif.clk);
+        `uvm_error("DRV",
+          $sformatf("TIMEOUT waiting for pop[%0d]", port))
+      end
+    join_any
+    disable fork;
+
+
+    // Step 3  Drop request
+
+    @(posedge vif.clk);
+    vif.drv_pndng_i_in[port] <= 1'b0;
+
+
+    // Step 4  Inter-packet delay
+
+    repeat (t.cycles_between) @(posedge vif.clk);
+
+  endtask : drive
 
 endclass : router_driver
 

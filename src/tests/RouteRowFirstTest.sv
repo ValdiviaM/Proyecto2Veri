@@ -8,10 +8,10 @@ class RouteRowFirstTest extends base_test;
   function void build_phase(uvm_phase phase);
     super.build_phase(phase);
 
-    cfg_mode = 1; // ROW FIRST
-    cfg_num_msgs = 200;
+    cfg_mode     = 1;     // ROW_FIRST
+    cfg_num_msgs = 200;   // por ejemplo
 
-    `uvm_info("TEST", "RouteRowFirstTest configurado", UVM_LOW)
+    `uvm_info("TEST", "RouteRowFirstTest configurado (ROW_FIRST)", UVM_LOW)
   endfunction
 endclass
 

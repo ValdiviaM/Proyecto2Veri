@@ -1,33 +1,31 @@
+// router_env.sv
+
 `include "uvm_macros.svh"
 import uvm_pkg::*;
 import router_pkg::*;
 
-class router_agent extends uvm_agent;
-    `uvm_component_utils(router_agent)
+class router_env extends uvm_env;
+  `uvm_component_utils(router_env)
 
-    router_sequencer m_sequencer;
-    router_driver    m_driver;
+  router_agent m_agent;
+  scoreboard   m_sb;
 
-    virtual mesh_gen_if vif;
+  function new(string name, uvm_component parent=null);
+    super.new(name, parent);
+  endfunction
 
-    function new(string name, uvm_component parent=null);
-        super.new(name, parent);
-    endfunction
+  function void build_phase(uvm_phase phase);
+    super.build_phase(phase);
+    m_agent = router_agent::type_id::create("m_agent", this);
+    m_sb    = scoreboard  ::type_id::create("m_sb",    this);
+  endfunction
 
-    function void build_phase(uvm_phase phase);
-        super.build_phase(phase);
-
-        if (!uvm_config_db#(virtual mesh_gen_if)::get(this, "", "vif", vif))
-            `uvm_fatal("AGT", "No virtual interface found")
-
-        m_sequencer = router_sequencer::type_id::create("m_sequencer", this);
-        m_driver    = router_driver   ::type_id::create("m_driver",    this);
-
-        uvm_config_db#(virtual mesh_gen_if)::set(this, "m_driver", "vif", vif);
-    endfunction
-
-    function void connect_phase(uvm_phase phase);
-        m_driver.seq_item_port.connect(m_sequencer.seq_item_export);
-    endfunction
+  function void connect_phase(uvm_phase phase);
+    // Asumiendo que en scoreboard usas dos imps:
+    //   imp_in  y imp_out, y en monitor ap_in / ap_out
+    m_agent.m_monitor.ap_in.connect (m_sb.imp_in);
+    m_agent.m_monitor.ap_out.connect(m_sb.imp_out);
+  endfunction
 
 endclass
+
