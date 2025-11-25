@@ -1,8 +1,3 @@
-// tests/RouteRowFirstTest.sv
-`include "uvm_macros.svh"
-import uvm_pkg::*;
-import router_pkg::*;
-
 class RouteRowFirstTest extends base_test;
   `uvm_component_utils(RouteRowFirstTest)
 
@@ -10,13 +5,20 @@ class RouteRowFirstTest extends base_test;
     super.new(name, parent);
   endfunction
 
-  function void build_phase(uvm_phase phase);
-    super.build_phase(phase);
+  task run_phase(uvm_phase phase);
+    router_sequence seq;
+    phase.raise_objection(this);
+    
+    seq = router_sequence::type_id::create("seq");
 
-    cfg_mode     = 1;     // ROW_FIRST
-    cfg_num_msgs = 200;
+    // Configure Knobs for this specific test
+    seq.num_trans  = 100;
+    seq.route_mode = 1; // Force ROW_FIRST
+    seq.inject_error = 1; // Inject errors to see if scoreboard catches them
 
-    `uvm_info("TEST", "RouteRowFirstTest configurado (ROW_FIRST)", UVM_LOW)
-  endfunction
+    seq.start(m_env.m_agent.m_sequencer);
+    
+    #1000;
+    phase.drop_objection(this);
+  endtask
 endclass
-

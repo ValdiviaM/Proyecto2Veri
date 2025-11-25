@@ -1,121 +1,87 @@
-// router_driver.sv
-
-`include "uvm_macros.svh"
-import uvm_pkg::*;
-import router_pkg::*;
-
 class router_driver extends uvm_driver #(seq_item);
-  `uvm_component_utils(router_driver)
+    `uvm_component_utils(router_driver)
 
-  // Debe coincidir con el modport TB de la interfaz
-  virtual mesh_gen_if #(ROWS, COLUMS, DATA_WIDTH).TB vif;
-  
-  localparam int NUM_PORTS = ROWS*2 + COLUMS*2;
-  seq_item req;
+    virtual mesh_gen_if #(ROWS, COLUMS, DATA_WIDTH).TB vif;
+    seq_item req;
+    
+    semaphore port_locks[(ROWS*2 + COLUMS*2)];
 
-  // -------------------------------------------------------------
-  function new(string name="router_driver", uvm_component parent=null);
-    super.new(name, parent);
-  endfunction
+    function new(string name = "router_driver", uvm_component parent = null);
+        super.new(name, parent);
+        for(int i=0; i < (ROWS*2 + COLUMS*2); i++) begin
+            port_locks[i] = new(1);
+        end
+    endfunction
 
-  // -------------------------------------------------------------
-  function void build_phase(uvm_phase phase);
-    super.build_phase(phase);
+    function void build_phase(uvm_phase phase);
+        super.build_phase(phase);
+        if (!uvm_config_db#(virtual mesh_gen_if #(ROWS, COLUMS, DATA_WIDTH).TB)::get(this, "", "vif", vif))
+            `uvm_fatal("DRV", "Cannot get virtual interface")
+    endfunction
 
-    if (!uvm_config_db#(
-          virtual mesh_gen_if #(ROWS, COLUMS, DATA_WIDTH).TB
-        )::get(this, "", "vif", vif))
-      `uvm_fatal("DRV", "Driver could not get TB modport VIF")
-    else
-      `uvm_info("DRV", "Driver VIF OK", UVM_LOW)
-  endfunction
+    task run_phase(uvm_phase phase);
+        seq_item req_cloned;
 
-  // -------------------------------------------------------------
-  task run_phase(uvm_phase phase);
+        // Init signals
+        for (int i = 0; i < (ROWS*2+COLUMS*2); i++) begin
+            vif.drv_pndng_i_in[i] <= 1'b0;
+            vif.drv_data_out_i_in[i] <= '0;
+        end
 
-    // Inicializar entradas TB?DUT para evitar X
-    for (int i = 0; i < NUM_PORTS; i++) begin
-      vif.drv_pndng_i_in[i]    <= 1'b0;
-      vif.drv_data_out_i_in[i] <= '0;
-      // NO tocamos drv_popin aquí: lo maneja el dummy consumer de la IF
-    end
+        // Wait for Reset
+        wait (vif.reset === 1'b0);
+        @(posedge vif.clk);
 
-    // Esperar a que se libere el reset
-    @(posedge vif.clk);
-    wait (vif.reset == 1'b0);
+        forever begin
+            seq_item_port.get_next_item(req);
+            $cast(req_cloned, req.clone());
+            
+            fork
+                automatic seq_item t = req_cloned;
+                begin
+                    drive(t); 
+                end
+            join_none
+            
+            seq_item_port.item_done();
+        end
+    endtask
 
-    `uvm_info("DRV", "Reset released  Driver ACTIVE", UVM_LOW)
+    task drive(seq_item t);
+        int unsigned port = t.src; 
 
-    forever begin
-      seq_item_port.get_next_item(req);
-      drive(req);
-      seq_item_port.item_done();
-    end
-  endtask
+        if (port >= (ROWS*2 + COLUMS*2)) return;
 
-  // -------------------------------------------------------------
-  // DRIVE ONE TRANSACTION
-  // -------------------------------------------------------------
-  task drive(seq_item t);
+        port_locks[port].get(); 
 
-    int port;
-    reg [DATA_WIDTH-1:0] payload;   // usar reg para compatibilidad VCS
+        // 1. Assert Request
+        @(posedge vif.clk);
+        vif.drv_data_out_i_in[port] <= t.data;
+        vif.drv_pndng_i_in[port]    <= 1'b1;
+        
+        // Add Print with Semicolon
+        `uvm_info("DRV", $sformatf("Driving Port %0d with Data %0h", port, t.data), UVM_LOW);
 
-    // Puerto de origen
-    port = t.src;
+        // 2. Wait for ACK from DUT (pop)
+        fork
+            begin : wait_for_ack
+                do begin
+                    @(posedge vif.clk);
+                end while (vif.pop[port] === 1'b0); 
+            end
+            begin : watchdog
+                repeat(100) @(posedge vif.clk);
+                `uvm_error("DRV", $sformatf("Timeout waiting for pop on port %0d", port))
+            end
+        join_any
+        disable fork;
 
-    if (port >= NUM_PORTS) begin
-      `uvm_error("DRV", $sformatf("Invalid source port %0d", port))
-      return;
-    end
+        // 3. De-assert Request
+        vif.drv_pndng_i_in[port] <= 1'b0;
+        
+        repeat (t.cycles_between) @(posedge vif.clk);
 
-    // Payload + errores
-    payload = t.data;
+        port_locks[port].put();
+    endtask
 
-    case (t.msg_error)
-      seq_item::HDR_ERROR: payload[DATA_WIDTH-1] = ~payload[DATA_WIDTH-1];
-      seq_item::PAY_ERROR: payload[0]            = ~payload[0];
-      default: ; // NO_ERROR
-    endcase
-
-    // Paso 1  Assert petición TB?DUT
-    @(posedge vif.clk);
-
-    vif.drv_data_out_i_in[port] <= payload;
-    vif.drv_pndng_i_in[port]    <= 1'b1;
-
-    `uvm_info("DRV",
-      $sformatf("SEND: port=%0d data=0x%0h dst=%0d mode=%0d bdcst=%0b err=%0d",
-                port, payload, t.addr, t.mode, t.broadcast, t.msg_error),
-      UVM_MEDIUM)
-
-    // Paso 2  Esperar ACK del DUT (pop)
-    fork
-      // ACK
-      begin : wait_ack
-        while (vif.pop[port] == 1'b0) @(posedge vif.clk);
-        `uvm_info("DRV",
-          $sformatf("ACK from DUT on port %0d", port),
-          UVM_LOW)
-      end
-
-      // Time-out
-      begin : watchdog
-        repeat (200) @(posedge vif.clk);
-        `uvm_error("DRV",
-          $sformatf("TIMEOUT waiting for pop[%0d]", port))
-      end
-    join_any
-    disable fork;
-
-    // Paso 3  Bajar petición
-    @(posedge vif.clk);
-    vif.drv_pndng_i_in[port] <= 1'b0;
-
-    // Paso 4  Gap entre paquetes
-    repeat (t.cycles_between) @(posedge vif.clk);
-
-  endtask : drive
-
-endclass : router_driver
-
+endclass

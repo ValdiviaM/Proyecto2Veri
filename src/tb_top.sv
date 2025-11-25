@@ -1,54 +1,66 @@
 `timescale 1ns/1ps
-`include "uvm_macros.svh"
 import uvm_pkg::*;
 import router_pkg::*;
 
-module tb_top;   
-  localparam int ROWS    = router_pkg::ROWS;
-  localparam int COLUMS  = router_pkg::COLUMS;
-  localparam int PCKG_SZ = router_pkg::PCKG_SZ;
+module tb_top;
 
-  bit clk = 0;
-  always #5 clk = ~clk;
+    localparam int ROWS    = router_pkg::ROWS;
+    localparam int COLUMS  = router_pkg::COLUMS;
+    localparam int PCK_SZ  = router_pkg::DATA_WIDTH; 
 
-  // Interface instance
-  mesh_gen_if #(ROWS, COLUMS, PCKG_SZ) vif (.clk(clk));
+    bit clk;
+    initial begin
+        clk = 0;
+        forever #5 clk = ~clk;
+    end
 
-  // DUT instantiation
-  mesh_gnrtr #(
-    .ROWS(ROWS),
-    .COLUMS(COLUMS),
-    .pckg_sz(PCKG_SZ),
-    .fifo_depth(4),
-    .bdcst({8{1'b1}})
-  ) dut (
-    .clk(clk),
-    .reset(vif.reset),
-    .pndng(vif.pndng),
-    .data_out(vif.data_out),
-    .popin(vif.popin),
-    .pop(vif.pop),
-    .data_out_i_in(vif.data_out_i_in),
-    .pndng_i_in(vif.pndng_i_in)
-  );
+    mesh_gen_if #(ROWS, COLUMS, PCK_SZ) vif(clk);
 
-  initial begin
-      vif.reset = 1'b1;
-      repeat (5) @(posedge clk);
-      vif.reset = 1'b0;
+    mesh_gnrtr #(
+        .ROWS(ROWS), 
+        .COLUMS(COLUMS), 
+        .pckg_sz(PCK_SZ), 
+        .fifo_depth(4), 
+        .bdcst({8{1'b1}})
+    ) dut (
+        .clk(clk),
+        .reset(vif.reset),
+        .pndng(vif.pndng),
+        .data_out(vif.data_out),
+        .popin(vif.popin),
+        .pop(vif.pop),
+        .data_out_i_in(vif.data_out_i_in),
+        .pndng_i_in(vif.pndng_i_in)
+    );
 
-      // DRIVER ? TB modport
-      uvm_config_db#(
-        virtual mesh_gen_if #(ROWS, COLUMS, PCKG_SZ).TB
-      )::set(null, "*", "vif", vif.TB);
+    // ======================================================
+    // BLOCK 1: UVM STARTUP (MUST RUN AT TIME 0)
+    // ======================================================
+    initial begin
+        // 1. Register Interface
+        uvm_config_db#(virtual mesh_gen_if #(ROWS, COLUMS, PCK_SZ))::set(null, "*", "vif", vif);
+        
+        // 2. Start Test
+        // Explicitly tell UVM which test to run
+        run_test("base_test");  // <--- CHANGE THIS LINE
+    end
 
-      // MONITOR ? MON modport
-      uvm_config_db#(
-        virtual mesh_gen_if #(ROWS, COLUMS, PCKG_SZ).MON
-      )::set(null, "*", "vif", vif.MON);
+    // ======================================================
+    // BLOCK 2: RESET GENERATION (RUNS IN PARALLEL)
+    // ======================================================
+    initial begin
+        vif.reset = 1'b1;
+        
+        // This delay is fine here because run_test() is already active
+        // in the other block. The Driver will wait for this reset 
+        // to drop before sending packets.
+        repeat(10) @(posedge clk);
+        vif.reset = 1'b0;
+    end
 
-      run_test("RouteRowFirstTest.sv");
-  end
+    initial begin
+        $dumpfile("router_dump.vcd");
+        $dumpvars(0, tb_top);
+    end
 
 endmodule
-

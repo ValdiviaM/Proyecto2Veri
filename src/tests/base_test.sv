@@ -1,53 +1,44 @@
-// tests/base_test.sv
-`include "uvm_macros.svh"
-import uvm_pkg::*;
-import router_pkg::*;
-
 class base_test extends uvm_test;
-  `uvm_component_utils(base_test)
+    `uvm_component_utils(base_test)
+    router_env m_env;
 
-  router_env      m_env;
-  router_sequence seq;
+    // Configurable parameters available on command line or extended tests
+    int cfg_num_msgs     = 50;
+    int cfg_src_terminal = -1; // Default Random
+    
+    function new(string name = "base_test", uvm_component parent=null);
+        super.new(name, parent);
+    endfunction
 
-  // CONFIG
-  int cfg_num_msgs      = 200;
-  int cfg_src_terminal  = -1;
-  int cfg_dst_terminal  = -1;
-  bit cfg_mode          = 1;  // 1=ROW_FIRST, 0=COL_FIRST
-  bit cfg_broadcast     = 0;
-  bit cfg_inject_error  = 0;
-  bit cfg_reset_mid_tx  = 0;
-  bit cfg_fifo_stress   = 0;
+    function void build_phase(uvm_phase phase);
+        super.build_phase(phase);
+        m_env = router_env::type_id::create("m_env", this);
+    endfunction
 
-  function new(string name="base_test", uvm_component parent=null);
-    super.new(name,parent);
-  endfunction
+    task run_phase(uvm_phase phase);
+        router_sequence seq;
+        phase.raise_objection(this);
+        
+        seq = router_sequence::type_id::create("seq");
+        
+        // ---------------------------------------------------------
+        // APPLY CONFIGURATION TO SEQUENCE KNOBS
+        // ---------------------------------------------------------
+        seq.num_trans    = cfg_num_msgs;
+        seq.src_terminal = cfg_src_terminal; 
+        
+        // Example: If you want to force all packets to enter port 0:
+        // seq.src_terminal = 0; 
 
-  function void build_phase(uvm_phase phase);
-    super.build_phase(phase);
-    m_env = router_env::type_id::create("m_env", this);
-  endfunction
+        // Example: Enable error injection
+        // seq.inject_error = 1;
 
-  task run_phase(uvm_phase phase);
-    phase.raise_objection(this);
+        if(!seq.randomize()) `uvm_fatal("TEST", "Randomization failed")
 
-    seq = router_sequence::type_id::create("seq");
-
-    // Pasar parámetros a la secuencia
-    seq.num_trans       = cfg_num_msgs;
-    seq.src_terminal    = cfg_src_terminal;
-    seq.dst_terminal    = cfg_dst_terminal;
-    seq.route_mode      = cfg_mode;
-    seq.force_broadcast = cfg_broadcast;
-    seq.inject_error    = cfg_inject_error;
-    seq.reset_mid_tx    = cfg_reset_mid_tx;
-    seq.fifo_stress     = cfg_fifo_stress;
-
-    seq.start(m_env.m_agent.m_sequencer);
-
-    #1000;
-    phase.drop_objection(this);
-  endtask
-
+        `uvm_info("TEST", "Starting Sequence with Configured Knobs...", UVM_LOW)
+        seq.start(m_env.m_agent.m_sequencer);
+        
+        #2000; 
+        phase.drop_objection(this);
+    endtask
 endclass
-

@@ -1,80 +1,83 @@
-// mesh_gen_if.sv
-// Final, fully corrected interface for router TB + UVM
+import uvm_pkg::*;
+`include "uvm_macros.svh"
 
 interface mesh_gen_if #(
     parameter int ROWS    = 4,
     parameter int COLUMS  = 4,
-    parameter int PCKG_SZ = 32
+    parameter int PCKG_SZ = 40 // Ensure this matches your DATA_WIDTH
 ) (input logic clk);
 
-    // Reset driven by TB
     logic reset;
 
+    // ============================================================
+    // 1. WIRES (Physical connections to DUT)
+    // ============================================================
+    
+    // Group A: DUT Outputs (Router -> TB)
+    // The Router wants to send data out.
+    wire                    pndng    [ROWS*2+COLUMS*2]; // Output Valid
+    wire [PCKG_SZ-1:0]      data_out [ROWS*2+COLUMS*2]; // Output Data
+    wire                    pop      [ROWS*2+COLUMS*2]; // Input Ack (DUT accepts TB injection)
 
-    // DUT ? TB (router OUTPUT ports)
+    // Group B: DUT Inputs (TB -> Router)
+    // The Router receives data or acknowledgements.
+    wire                    pndng_i_in    [ROWS*2+COLUMS*2]; // Input Valid
+    wire [PCKG_SZ-1:0]      data_out_i_in [ROWS*2+COLUMS*2]; // Input Data
+    wire                    popin         [ROWS*2+COLUMS*2]; // Output Ack (TB accepts DUT output)
 
-    wire                    pndng    [ROWS*2+COLUMS*2];
-    wire [PCKG_SZ-1:0]      data_out [ROWS*2+COLUMS*2];
-    wire                    pop       [ROWS*2+COLUMS*2];   // DUT ACK to TB
-
-
-
-    // TB ? DUT (router INPUT ports)
-
+    // ============================================================
+    // 2. DRIVER LOGIC (TB -> Wires)
+    // ============================================================
+    
+    // Intermediate logic signals that the Driver/Sequencer will write to
     logic                    drv_pndng_i_in    [ROWS*2+COLUMS*2];
     logic [PCKG_SZ-1:0]      drv_data_out_i_in [ROWS*2+COLUMS*2];
-    logic                    drv_popin         [ROWS*2+COLUMS*2]; // TB ACK to DUT
+    logic                    drv_popin         [ROWS*2+COLUMS*2]; // TB Acknowledgement
 
-
-    // Wires seen by DUT
-    wire                    pndng_i_in    [ROWS*2+COLUMS*2];
-    wire [PCKG_SZ-1:0]      data_out_i_in [ROWS*2+COLUMS*2];
-    wire                    popin         [ROWS*2+COLUMS*2];
-
-
-
-    // BRIDGE: TB logic ? DUT wires
-
+    // Connect Driver Logic to DUT Input Wires
     genvar gi;
     generate
       for (gi = 0; gi < ROWS*2+COLUMS*2; gi++) begin : BRIDGE
         assign pndng_i_in[gi]    = drv_pndng_i_in[gi];
         assign data_out_i_in[gi] = drv_data_out_i_in[gi];
-        assign popin[gi]         = drv_popin[gi];   // FIXED
+        assign popin[gi]         = drv_popin[gi]; 
       end
     endgenerate
 
-
-
-    // Dummy consumer: DUT ? TB side auto-ACK
-
+    // ============================================================
+    // 3. DUMMY CONSUMER (Automatic ACK for Router Outputs)
+    // ============================================================
+    // If the Router has data (pndng), we assert popin (Ack) 
+    // so the router empties its buffer.
     always @(posedge clk) begin
         if (reset) begin
             for (int k = 0; k < ROWS*2+COLUMS*2; k++)
                 drv_popin[k] <= 1'b0;
         end else begin
             for (int k = 0; k < ROWS*2+COLUMS*2; k++)
-                drv_popin[k] <= pndng[k];  // TB acknowledges router output
+                drv_popin[k] <= pndng[k]; 
         end
     end
 
-
-
-    // MODPORTS (critical)
+    // ============================================================
+    // 4. MODPORTS
+    // ============================================================
 
     modport TB (
         input  clk,
         output reset,
 
-        // TB ? DUT
+        // TB Drives these (Injection)
         output drv_pndng_i_in,
         output drv_data_out_i_in,
+        
+        // TB Drives this (Ejection/Ack)
         output drv_popin,
 
-        // TB reads DUT outputs
+        // TB Reads these (Monitoring/Handshake)
         input  pndng,
         input  data_out,
-        input  pop
+        input  pop // DUT Acknowledgement
     );
 
     modport MON (
@@ -95,51 +98,56 @@ interface mesh_gen_if #(
         output pop
     );
 
-
-
-    // ASSERTIONS (unchanged, correct)
+    // ============================================================
+    // 5. ASSERTIONS (Protocol Checkers)
+    // ============================================================
 
     generate
       for (genvar i = 0; i < ROWS*2+COLUMS*2; i++) begin : PROTOCOL
 
+        // A. Router Output Protocol (DUT -> TB)
+        // -------------------------------------
+        
+        // 1. Data must remain stable while Pending is high, until acknowledged (popin)
         property data_stable_until_popin;
-            @(posedge clk)
-            pndng[i] |-> ($stable(data_out[i]) or popin[i]);
+            @(posedge clk) disable iff (reset)
+            (pndng[i] && !popin[i]) |=> $stable(data_out[i]);
         endproperty
-        assert property(data_stable_until_popin);
+        assert property(data_stable_until_popin) else `uvm_error("IF", $sformatf("Port %0d: Data changed while PNDNG high without POPIN", i));
 
+        // 2. TB shouldn't ACK unless there is a request
         property popin_only_when_valid;
-            @(posedge clk)
+            @(posedge clk) disable iff (reset)
             popin[i] |-> pndng[i];
         endproperty
-        assert property(popin_only_when_valid);
+        assert property(popin_only_when_valid) else `uvm_error("IF", $sformatf("Port %0d: POPIN asserted without PNDNG", i));
 
-        property popin_consumes_packet;
-            @(posedge clk)
-            popin[i] |=> !pndng[i];
-        endproperty
-        assert property(popin_consumes_packet);
+        // B. Router Input Protocol (TB -> DUT)
+        // ------------------------------------
 
+        // 3. If TB requests injection (pndng_i_in), DUT must eventually ACK (pop)
+        // Note: usage of [1:$] implies liveness. If simulation ends early, this might not fire.
         property tb_req_acknowledged;
-            @(posedge clk)
+            @(posedge clk) disable iff (reset)
             pndng_i_in[i] |-> ##[1:$] pop[i];
         endproperty
-        assert property(tb_req_acknowledged);
+        assert property(tb_req_acknowledged) else `uvm_warning("IF", $sformatf("Port %0d: Request stuck, never acknowledged by DUT", i));
 
+        // 4. TB Data must be stable during request until ACK
         property tb_data_stable_during_req;
-            @(posedge clk)
-            pndng_i_in[i] |-> ($stable(data_out_i_in[i]) or pop[i]);
+            @(posedge clk) disable iff (reset)
+            (pndng_i_in[i] && !pop[i]) |=> $stable(data_out_i_in[i]);
         endproperty
-        assert property(tb_data_stable_during_req);
+        assert property(tb_data_stable_during_req) else `uvm_error("IF", $sformatf("Port %0d: Driver changed Data during PNDNG without POP", i));
 
+        // 5. DUT should only POP if TB is actually offering data
         property pop_only_when_tb_has_data;
-            @(posedge clk)
+            @(posedge clk) disable iff (reset)
             pop[i] |-> pndng_i_in[i];
         endproperty
-        assert property(pop_only_when_tb_has_data);
+        assert property(pop_only_when_tb_has_data) else `uvm_error("IF", $sformatf("Port %0d: DUT asserted POP without PNDNG_I_IN", i));
 
       end
     endgenerate
 
 endinterface
-
