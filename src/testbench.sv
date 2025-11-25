@@ -105,58 +105,63 @@ endinterface
     // SEQUENCE ITEM        `uvm_object_utils_begin(seq_item)
     // ----------------------------------------------------------------
     class seq_item extends uvm_sequence_item;
-    
-        // ... (enums y variables rand siguen igual) ...
+
         typedef enum logic [0:0] { ROW_FIRST = 1'b1, COL_FIRST = 1'b0 } route_mode_e;
         typedef enum logic { NO_ERROR = 1'b0, HAS_ERR  = 1'b1 } error_type_e;
             
-        rand bit [ADDR_WIDTH-1:0] addr; 
-        rand bit [DATA_WIDTH-1:0] data;
+        rand bit [ADDR_WIDTH-1:0] addr;         // Puerto de ORIGEN
+        rand bit [DATA_WIDTH-1:0] data;         // Contenido del paquete
         rand bit [$clog2(MAX_N_CYCLES)-1:0] cycles_between;
         rand route_mode_e mode;
         rand error_type_e msg_error;
         rand bit broadcast;
-        bit [DATA_WIDTH-1:0] out_dut; 
-    
+        
+        // Nueva variable para control de peso (Opcional, para dirigir tráfico)
+        rand int traffic_weight; 
+
         `uvm_object_utils_begin(seq_item)
             `uvm_field_int(addr,          UVM_ALL_ON)
-            `uvm_field_int(data,          UVM_ALL_ON)
-            `uvm_field_int(cycles_between,UVM_ALL_ON)
-            `uvm_field_enum(route_mode_e, mode, UVM_ALL_ON)
+            `uvm_field_int(data,          UVM_ALL_ON | UVM_HEX)
             `uvm_field_enum(error_type_e, msg_error, UVM_ALL_ON)
-            `uvm_field_int(broadcast,     UVM_ALL_ON)
         `uvm_object_utils_end
-    
-        // Constraints básicos
-        constraint gap_c { cycles_between < MAX_N_CYCLES; }
-        constraint broadcast_c { broadcast dist { 1'b0 := 9, 1'b1 := 1}; }
-        constraint error_c { msg_error dist { NO_ERROR := 9, HAS_ERR := 1 }; }
-        
+
         // -----------------------------------------------------------
-        // CONSTRAINT 1: PUERTO DE ORIGEN VÁLIDO (Genérico)
+        // 1. CONSTRAINT: TIEMPOS DE ENVÍO
+        // -----------------------------------------------------------
+        constraint gap_c { cycles_between inside {[0:15]}; } // Rango razonable
+
+        // -----------------------------------------------------------
+        // 2. CONSTRAINT: TRANSACCIONES POR TERMINAL (Dstribución)
         // -----------------------------------------------------------
         constraint valid_source_port_c { 
             addr inside {[0 : (ROWS*2 + COLUMS*2) - 1]}; 
         }
+        
+        // Esto permite crear escenarios de "Hotspot". 
+        // Por defecto es uniforme, pero puedes sobreescribirlo en tests específicos.
+        constraint source_dist_c {
+            solve traffic_weight before addr; // Orden de resolución
+            // Por defecto todos igual probabilidad
+            addr dist { [0:(ROWS*2 + COLUMS*2) - 1] :/ 100 }; 
+        }
 
         // -----------------------------------------------------------
-        // CONSTRAINT 2: HEADER DE DESTINO VÁLIDO (Genérico)
+        // 3. CONSTRAINT: MENSAJES CON ERRORES (Probabilidad)
         // -----------------------------------------------------------
-        // IMPORTANTE: Verifique con el diseñador del DUT si estas posiciones son correctas.
-        // Si DATA_WIDTH=32:
-        // (32 - 9) -: 4  => Bits [23:20] para la Fila (Row)
-        // (32 - 13) -: 4 => Bits [19:16] para la Columna (Col)
+        constraint error_c { 
+            msg_error dist { NO_ERROR := 80, HAS_ERR := 20 }; // 20% de error
+        }
+
+        // -----------------------------------------------------------
+        // 4. CONSTRAINT: DIRECCIONES DE DESTINO (Header válido)
+        // -----------------------------------------------------------
         constraint valid_packet_header_c {  
-            // Para que el paquete SALGA del DUT, debe dirigirse a una coordenada
-            // fuera del rango [1..ROWS, 1..COLUMS].
-            // Las coordenadas de "Salida" son: 
-            // Fila 0 (Norte), Fila ROWS+1 (Sur), Col 0 (Oeste), Col COLUMS+1 (Este).
+            // Filas:
+            data[(DATA_WIDTH - 9) -: 4] inside {0, [1:ROWS], ROWS+1};     
+            // Columnas:
+            data[(DATA_WIDTH - 13) -: 4] inside {0, [1:COLUMS], COLUMS+1}; 
 
-            data[(DATA_WIDTH - 9) -: 4] inside {0, [1:ROWS], ROWS+1};     // Row bits
-            data[(DATA_WIDTH - 13) -: 4] inside {0, [1:COLUMS], COLUMS+1}; // Col bits
-
-            // REGLA DE ORO: O la fila es externa, O la columna es externa.
-            // Si ambas son internas, el paquete se queda atrapado dentro.
+            // Restricción para asegurar que va a un borde (salida válida)
             (
                 (data[(DATA_WIDTH - 9) -: 4] == 0) || 
                 (data[(DATA_WIDTH - 9) -: 4] == ROWS+1) ||
@@ -164,30 +169,47 @@ endinterface
                 (data[(DATA_WIDTH - 13) -: 4] == COLUMS+1)
             );
         }
-
-        // -----------------------------------------------------------
-        // CONSTRAINT 3: NO LOOPBACK (Nuevo)
-        // -----------------------------------------------------------
-        // Ayuda a ver salidas. Si origen == destino, el DUT podría no sacar el paquete.
-        // Como es difícil calcular XY desde Addr en constraints puros,
-        // simplemente forzamos a que el destino NO sea igual a la "dirección" inyectada
-        // asumiendo que el ID del paquete tiene alguna correlación, o confiamos en la suerte.
         
-        // Una forma simple de ayudar a la aleatorización es evitar que row y col sean idénticos
-        // si el puerto de entrada sugiere que estamos en esa diagonal, etc.
-        // Por ahora, dejemos que la aleatoriedad fluya, pero si quiere ser estricto:
-        
-        /* 
-        constraint no_dumb_routing_c {
-           // Ejemplo: Evitar enviar a coordenadas (0,0) o cosas raras si su malla es 1-based
-           data[(DATA_WIDTH - 9) -: 4] != 0;
-           data[(DATA_WIDTH - 13) -: 4] != 0;
-        }
-        */
+        // Broadcast constraint (10% chance)
+        constraint broadcast_c { broadcast dist { 1'b0 := 9, 1'b1 := 1}; }
 
+        // Constructor
         function new (string name = "seq_item");
             super.new(name);
         endfunction
+
+        // -----------------------------------------------------------
+        // LÓGICA DE INYECCIÓN DE ERROR (POST RANDOMIZE)
+        // -----------------------------------------------------------
+        function void post_randomize();
+            // Si el broadcast salió 1, forzamos el ID de broadcast en el header
+            if (broadcast) begin
+                // Asumiendo que el ID de broadcast son los 8 bits en [MSB-1 : MSB-8]
+                // Revisa tu especificación de DUT, en tu código anterior usabas data[pck_sz-1:pck_sz-8]
+                data[(DATA_WIDTH-1) -: 8] = 8'hFF; 
+            end
+
+            // Si se eligió generar ERROR
+            if (msg_error == HAS_ERR) begin
+                // CORRUPCIÓN DE DATOS:
+                // Opción A: Invertir un bit aleatorio en el payload
+                // Opción B: Poner una dirección de destino inválida (ej: fila > ROWS+1)
+                
+                // Vamos a aplicar Opción B (Header Inválido) para ver si el DUT lo descarta
+                // OJO: Esto sobreescribe lo que hizo el constraint, lo cual es el objetivo del error injection.
+                bit [1:0] err_mode;
+                err_mode = $urandom_range(0,2);
+                
+                case(err_mode)
+                    0: data[(DATA_WIDTH - 9) -: 4] = ROWS + 5;   // Fila inválida
+                    1: data[(DATA_WIDTH - 13) -: 4] = COLUMS + 5; // Columna inválida
+                    2: data[0] = ~data[0]; // Bit flip en payload (si tuvieras paridad, esto saltaría)
+                endcase
+                
+                `uvm_info("SEQ_ITEM", $sformatf("Injecting ERROR type %0d on packet to Addr %0d", err_mode, addr), UVM_HIGH)
+            end
+        endfunction
+
     endclass
 
     // ----------------------------------------------------------------
@@ -231,89 +253,106 @@ endinterface
     // DRIVER
     // ----------------------------------------------------------------
     class router_driver extends uvm_driver #(seq_item);
-    `uvm_component_utils(router_driver)
-
-    virtual mesh_gen_if #(ROWS, COLUMS, DATA_WIDTH) vif;
-    seq_item req;
-
-    function new(string name = "router_driver", uvm_component parent = null);
-        super.new(name, parent);
-    endfunction
-
-    function void build_phase(uvm_phase phase);
-        super.build_phase(phase);
-        if (!uvm_config_db#(virtual mesh_gen_if #(ROWS, COLUMS, DATA_WIDTH))::get(this, "", "vif", vif))
-        `uvm_fatal("DRV", "Cannot get virtual interface")
-        else
-        `uvm_info("DRV", $sformatf("Driver got VIF: %p", vif), UVM_LOW);
-    endfunction
-
-    task run_phase(uvm_phase phase);
-        // 1. INICIALIZACIÓN COMPLETA (CRÍTICO)
-        // Antes de hacer nada, ponemos TODOS los puertos en 0 para quitar las X
-        // que están matando al DUT.
-        for (int i = 0; i < (ROWS*2+COLUMS*2); i++) begin
-            vif.drv_pndng_i_in[i] <= 1'b0;
-            vif.drv_data_out_i_in[i] <= '0;
-        end
-
-        // 2. Esperar al Reset del Top
-        // Esperamos que la señal de reset física baje
-        wait (vif.reset === 1'b0);
+        `uvm_component_utils(router_driver)
+    
+        virtual mesh_gen_if #(ROWS, COLUMS, DATA_WIDTH) vif;
+        seq_item req;
         
-        // Un ciclo extra de seguridad para sincronizar
-        @(posedge vif.clk);
-
-        // 3. Bucle principal
-        forever begin
-            seq_item_port.get_next_item(req);
-            drive(req);
-            seq_item_port.item_done();
-        end
-    endtask
-
-    task drive(seq_item t);
-            // 1. USAR EL PUERTO ALEATORIZADO DEL ITEM
-            int unsigned port = t.addr; 
-            
-            // Protección por si el randomizador falló (opcional pero recomendada)
-            if (port >= (ROWS*2 + COLUMS*2)) begin
-                `uvm_error("DRV", $sformatf("Port %0d out of bounds! Dropping item.", port))
-                return;
+        // Array de semáforos: Uno por cada puerto del DUT.
+        // Esto permite manejar puertos distintos simultáneamente, 
+        // pero bloquea si llegan dos paquetes seguidos para el MISMO puerto.
+        semaphore port_locks[(ROWS*2 + COLUMS*2)];
+    
+        function new(string name = "router_driver", uvm_component parent = null);
+            super.new(name, parent);
+            // Inicializar los semáforos (1 llave por puerto)
+            for(int i=0; i < (ROWS*2 + COLUMS*2); i++) begin
+                port_locks[i] = new(1);
             end
+        endfunction
+    
+        function void build_phase(uvm_phase phase);
+            super.build_phase(phase);
+            if (!uvm_config_db#(virtual mesh_gen_if #(ROWS, COLUMS, DATA_WIDTH))::get(this, "", "vif", vif))
+                `uvm_fatal("DRV", "Cannot get virtual interface")
+        endfunction
+    
+        task run_phase(uvm_phase phase);
+            // Variable auxiliar para la clonación (Aquí estaba el error antes)
+            seq_item req_cloned;
 
+            // 1. INICIALIZACIÓN
+            for (int i = 0; i < (ROWS*2+COLUMS*2); i++) begin
+                vif.drv_pndng_i_in[i] <= 1'b0;
+                vif.drv_data_out_i_in[i] <= '0;
+            end
+    
+            wait (vif.reset === 1'b0);
             @(posedge vif.clk);
-
-            // 2. DRIVE (Non-blocking)
+    
+            // 2. BUCLE PRINCIPAL (PIPELINED)
+            forever begin
+                // Obtener siguiente item del sequencer
+                seq_item_port.get_next_item(req);
+                
+                // Clonamos el objeto para que el hilo paralelo tenga su propia copia segura
+                $cast(req_cloned, req.clone());
+                
+                // Lanzamos el proceso en paralelo (Non-blocking)
+                fork
+                    // Declaramos 't' automatic para que sea local a este hilo del fork
+                    automatic seq_item t = req_cloned;
+                    begin
+                        drive(t); 
+                    end
+                join_none
+                
+                // Liberamos al sequencer inmediatamente para que mande el siguiente
+                seq_item_port.item_done();
+            end
+        endtask
+    
+        task drive(seq_item t);
+            int unsigned port = t.addr; 
+    
+            // Protección de rango
+            if (port >= (ROWS*2 + COLUMS*2)) return;
+    
+            // --- PROTECCIÓN CON SEMÁFORO ---
+            // Si el puerto 'port' está ocupado enviando otro paquete, esperamos aquí.
+            // Si es otro puerto distinto, pasamos inmediatamente.
+            port_locks[port].get(); 
+    
+            // Inicio de la transacción
+            @(posedge vif.clk);
             vif.drv_data_out_i_in[port] <= t.data;
             vif.drv_pndng_i_in[port]    <= 1'b1;
             
-            `uvm_info("DRV", $sformatf("Driving Port %0d Data %h (Waiting ACK...)", port, t.data), UVM_HIGH);
-
-            // 3. ESPERA DE ACK CON TIMEOUT (Watchdog)
-            // Usamos fork/join_any para esperar lo que ocurra primero: el ACK o el Timeout
+            // Espera de ACK
             fork
                 begin : wait_for_ack
                     do begin
                         @(posedge vif.clk);
                     end while (vif.popin[port] === 1'b0);
-                    `uvm_info("DRV", "ACK received!", UVM_HIGH)
                 end
-
-                begin : watchdog_timer
-                    repeat(100) @(posedge vif.clk); // Esperar 100 ciclos máx
-                    `uvm_error("DRV", $sformatf("Timeout waiting for popin (ACK) on port %0d. DUT ignored packet %h", port, t.data))
+                begin : watchdog
+                    repeat(100) @(posedge vif.clk);
+                    `uvm_error("DRV", $sformatf("Timeout waiting for popin on port %0d", port))
                 end
             join_any
-            disable fork; // Matar el proceso que no terminó (ej. si llegó ACK, matar el timer)
-
-            // 4. BAJAR VALID
+            disable fork;
+    
+            // Bajar valid
             vif.drv_pndng_i_in[port] <= 1'b0;
-
-            // 5. DELAY INTER-PAQUETE
+            
+            // Delay inter-paquete (simulación de tiempo muerto)
             repeat (t.cycles_between) @(posedge vif.clk);
+    
+            // --- LIBERAR SEMÁFORO ---
+            // El puerto queda libre para el siguiente paquete que vaya a ESTA dirección
+            port_locks[port].put();
         endtask
-
+    
     endclass
 
 
