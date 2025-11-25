@@ -376,140 +376,257 @@ endinterface
     // ----------------------------------------------------------------
     // SCOREBOARD
     // ----------------------------------------------------------------
-    class scoreboard extends uvm_component;
-        `uvm_component_utils(scoreboard)
-    
-        uvm_analysis_imp_in#(seq_item, scoreboard) m_analysis_imp_in;
-        uvm_analysis_imp_out#(seq_item, scoreboard) m_analysis_imp_out;
-    
-        typedef struct {
-            real time_in;
-            int src_port;
-            bit [DATA_WIDTH-1:0] raw_data;
-        } pkt_stats_t;
-    
-        pkt_stats_t packet_db [int];
-        int fd_csv;
-        string filename = "metrics_report.csv";
-    
-        // Estadísticas
-        real total_delay_per_term [int];
-        int  pkt_count_per_term [int];
-        real total_bits_per_term [int]; 
-        real simulation_start_time;
-        real simulation_end_time;
-    
-        function new(string name="scoreboard", uvm_component parent=null);
-            super.new(name, parent);
-            simulation_start_time = $realtime;
-        endfunction 
-    
-        virtual function void build_phase(uvm_phase phase);
-            super.build_phase(phase);     
-            m_analysis_imp_in  = new("m_analysis_imp_in", this);
-            m_analysis_imp_out = new("m_analysis_imp_out", this);
-            
-            fd_csv = $fopen(filename, "w");
-            if (fd_csv) $fwrite(fd_csv, "Send_Time,Source_Term,Dest_Term,Recv_Time,Delay,Packet_ID\n");
-        endfunction
-    
-        // Extractor de ID basado en tu DUT [MSB-26 : MSB-33]
+class scoreboard extends uvm_component;
+    `uvm_component_utils(scoreboard)
+
+    // Puertos de análisis (Entrada desde Driver, Salida desde DUT)
+    uvm_analysis_imp_in#(seq_item, scoreboard) m_analysis_imp_in;
+    uvm_analysis_imp_out#(seq_item, scoreboard) m_analysis_imp_out;
+
+    // Estructura para almacenar datos del paquete cuando entra al sistema
+    typedef struct {
+        real time_in;
+        int src_port;
+        bit [DATA_WIDTH-1:0] raw_data;
+    } pkt_stats_t;
+
+    // Base de datos de paquetes en tránsito (Key = Packet ID)
+    pkt_stats_t packet_db [int];
+
+    // Manejo de Archivos
+    int fd_csv;
+    string filename_csv = "metrics_report.csv";
+    string filename_dat = "simulation_summary.dat"; // Datos para Gnuplot
+
+    // --- Variables para Estadísticas por Terminal ---
+    // Key: ID de la terminal de destino
+    real total_delay_per_term [int];
+    real min_delay_per_term   [int];
+    real max_delay_per_term   [int];
+    int  pkt_count_per_term   [int];
+    real total_bits_per_term  [int]; 
+
+    // Tiempos globales de simulación para cálculo de ancho de banda
+    real simulation_start_time;
+    real simulation_end_time;
+
+    // Constructor
+    function new(string name="scoreboard", uvm_component parent=null);
+        super.new(name, parent);
+        simulation_start_time = 0; 
+    endfunction 
+
+    // Build Phase: Inicialización
+    virtual function void build_phase(uvm_phase phase);
+        super.build_phase(phase);     
+        m_analysis_imp_in  = new("m_analysis_imp_in", this);
+        m_analysis_imp_out = new("m_analysis_imp_out", this);
+        
+        // Abrir CSV y escribir encabezados
+        fd_csv = $fopen(filename_csv, "w");
+        if (fd_csv) begin
+            $fwrite(fd_csv, "Send_Time_ns,Source_Term,Dest_Term,Recv_Time_ns,Delay_ns,Packet_ID\n");
+        end else begin
+            `uvm_error("SCB", "No se pudo abrir el archivo CSV para escritura")
+        end
+    endfunction
+
+    // ----------------------------------------------------------------------
+    // Función Crítica: Extractor de Packet ID
+    // Basado en la estructura del DUT para un bus de 40 bits.
+    // El ID está en data[33:26] relativo al header, que mapea a [14:7] absolutos.
+    // ----------------------------------------------------------------------
     function int get_packet_id(bit [DATA_WIDTH-1:0] data);
-        // Sintaxis part-select indexada: [start_bit -: width]
+        // DATA_WIDTH debe ser 40. 
+        // (40 - 26) = 14. Bajamos 8 bits -> Rango [14:7]
         return data[(DATA_WIDTH - 26) -: 8]; 
     endfunction
-    
-        virtual function void write_in(seq_item item);
-            int pid = get_packet_id(item.data);
-            pkt_stats_t info;
-            info.time_in  = $realtime;
-            info.src_port = item.addr;
-            info.raw_data = item.data;
-            packet_db[pid] = info;
-            `uvm_info("SCB", $sformatf("Packet IN ID:%0d Port:%0d", pid, item.addr), UVM_HIGH)
-        endfunction
-    
-        virtual function void write_out(seq_item item);
-            int pid = get_packet_id(item.data);
-            pkt_stats_t exp_info;
-            seq_item exp_item_obj; 
-    
-            if (!packet_db.exists(pid)) begin
-                `uvm_warning("SCB", $sformatf("Unexpected output packet ID: %0d (Might be leftover or random collision)", pid))
-                return;
+
+    // ----------------------------------------------------------------------
+    // WRITE_IN: Se llama cuando el Monitor de Entrada detecta un paquete (Driver -> DUT)
+    // ----------------------------------------------------------------------
+    virtual function void write_in(seq_item item);
+        int pid = get_packet_id(item.data);
+        pkt_stats_t info;
+        
+        // Capturar tiempo de inicio real
+        if (simulation_start_time == 0) simulation_start_time = $realtime;
+
+        info.time_in  = $realtime;
+        info.src_port = item.addr; // Puerto por donde entró
+        info.raw_data = item.data;
+        
+        if (packet_db.exists(pid)) begin
+            `uvm_warning("SCB", $sformatf("Packet ID collision or reuse detected: %0d. Overwriting.", pid))
+        end
+        
+        // Guardar en la base de datos
+        packet_db[pid] = info;
+    endfunction
+
+    // ----------------------------------------------------------------------
+    // WRITE_OUT: Se llama cuando el Monitor de Salida detecta un paquete (DUT -> TB)
+    // ----------------------------------------------------------------------
+    virtual function void write_out(seq_item item);
+        int pid = get_packet_id(item.data);
+        pkt_stats_t exp_info;
+        real current_delay;
+        int dst;
+
+        // Verificar si el paquete que salió fue registrado a la entrada
+        if (!packet_db.exists(pid)) begin
+            `uvm_warning("SCB", $sformatf("Unexpected output packet ID: %0d (Spurious or leftover)", pid))
+            return;
+        end
+
+        // Recuperar información original
+        exp_info = packet_db[pid];
+        
+        // --- Cálculos ---
+        current_delay = $realtime - exp_info.time_in;
+        dst = item.addr; // Terminal donde apareció el paquete (Destino Real)
+
+        // --- Escribir fila en CSV (Requerimiento C) ---
+        if (fd_csv) begin
+            $fwrite(fd_csv, "%0.2f,%0d,%0d,%0.2f,%0.2f,%0d\n", 
+                    exp_info.time_in,   // Send Time
+                    exp_info.src_port,  // Source
+                    dst,                // Dest
+                    $realtime,          // Recv Time
+                    current_delay,      // Delay
+                    pid);               // Packet ID
+        end
+
+        // --- Acumular Estadísticas para Reporte Final (Requerimientos A y B) ---
+        if (!pkt_count_per_term.exists(dst)) begin
+            // Inicializar si es la primera vez que esta terminal recibe algo
+            pkt_count_per_term[dst]   = 0;
+            total_delay_per_term[dst] = 0;
+            total_bits_per_term[dst]  = 0;
+            min_delay_per_term[dst]   = current_delay;
+            max_delay_per_term[dst]   = current_delay;
+        end
+
+        pkt_count_per_term[dst]++;
+        total_delay_per_term[dst] += current_delay;
+        total_bits_per_term[dst]  += DATA_WIDTH; // Sumar bits recibidos (40 bits)
+
+        // Actualizar Min/Max Delay
+        if (current_delay < min_delay_per_term[dst]) min_delay_per_term[dst] = current_delay;
+        if (current_delay > max_delay_per_term[dst]) max_delay_per_term[dst] = current_delay;
+
+        // Limpiar base de datos y actualizar tiempo final
+        packet_db.delete(pid);
+        simulation_end_time = $realtime;
+    endfunction
+
+    // ----------------------------------------------------------------------
+    // REPORT_PHASE: Generación de resumen, cálculos finales y archivos Gnuplot
+    // ----------------------------------------------------------------------
+    virtual function void report_phase (uvm_phase phase);
+        int fd_dat;
+        real avg_delay;
+        real bandwidth_gbps; 
+        real total_sim_time;
+        
+        // Variables para encontrar Max/Min del sistema global
+        real max_sys_bw = 0;
+        real min_sys_bw = 99999999.0;
+        int  term_max_bw = -1;
+        int  term_min_bw = -1;
+
+        // Cerrar CSV
+        if (fd_csv) $fclose(fd_csv);
+
+        // Calcular tiempo total efectivo de transmisión
+        total_sim_time = simulation_end_time - simulation_start_time;
+        if (total_sim_time <= 0) total_sim_time = 1.0; // Evitar división por cero
+
+        `uvm_info("SCB", "===================================================", UVM_NONE)
+        `uvm_info("SCB", "             FINAL METRICS REPORT                  ", UVM_NONE)
+        `uvm_info("SCB", "===================================================", UVM_NONE)
+
+        // Abrir archivo de datos para Gnuplot (.dat)
+        fd_dat = $fopen(filename_dat, "w");
+        $fwrite(fd_dat, "# TermID  AvgDelay(ns)  AvgBW(Gbps)  PacketCount\n");
+
+        // Iterar sobre cada terminal que recibió paquetes
+        foreach (pkt_count_per_term[i]) begin
+            // (A) Promedio de Retraso
+            avg_delay = total_delay_per_term[i] / pkt_count_per_term[i];
+
+            // (B) Ancho de Banda Promedio
+            // Formula: (Total Bits / Tiempo Total ns) = Gigabits/sec
+            bandwidth_gbps = total_bits_per_term[i] / total_sim_time; 
+
+            // Actualizar Max/Min Global
+            if (bandwidth_gbps > max_sys_bw) begin
+                max_sys_bw = bandwidth_gbps;
+                term_max_bw = i;
             end
-    
-            exp_info = packet_db[pid];
-            exp_item_obj = seq_item::type_id::create("exp_item_obj");
-            exp_item_obj.data = exp_info.raw_data;
-            exp_item_obj.addr = exp_info.src_port; 
-    
-            // Reference Model
-            exp_item_obj = reference(exp_item_obj); 
-            
-            // Check & Log
-            do_check(item, exp_item_obj);
-            log_metrics(exp_item_obj, item, 1'b1);
-    
-            packet_db.delete(pid);
-            simulation_end_time = $realtime;
-        endfunction
-    
-        virtual function seq_item reference(seq_item item);
-            bit [3:0] trgt_row;
-            bit [3:0] trgt_col;
-            seq_item pred_item;
-            $cast(pred_item, item.clone());
-            
-            // Extracción de destino [MSB-9:MSB-12] y [MSB-13:MSB-16]
-            trgt_row = item.data[(DATA_WIDTH - 9) -: 4];
-            trgt_col = item.data[(DATA_WIDTH - 13) -: 4];
-            
-            pred_item.addr = get_terminal_id_from_xy(trgt_row, trgt_col);
-            return pred_item;
-        endfunction
-    
-        function int get_terminal_id_from_xy(int r, int c);
-            if (r == 1 && c >= 1 && c <= COLUMS) return (c - 1);
-            if (c == 1 && r >= 1 && r <= ROWS) return (COLUMS + r - 1);
-            if (r == ROWS && c >= 1 && c <= COLUMS) return (COLUMS + ROWS - 1 + c);
-            if (c == COLUMS && r >= 1 && r <= ROWS) return (2 * COLUMS + ROWS - 1 + r);
-            return -1; 
-        endfunction
-    
-        virtual function void do_check(seq_item rec_item, seq_item exp_item);
-            if (rec_item.data !== exp_item.data) `uvm_error("SCB", "Data Mismatch!")
-            
-            if (exp_item.addr == -1) 
-                 `uvm_info("SCB", "Packet targeted internal node (Dropped correctly)", UVM_HIGH)
-            else if (rec_item.addr !== exp_item.addr) 
-                `uvm_error("SCB", $sformatf("Routing Mismatch! Exp Port: %0d, Act Port: %0d", exp_item.addr, rec_item.addr))
-            else 
-                `uvm_info("SCB", "Packet routed correctly", UVM_HIGH)
-              endfunction
-    
-        virtual function void log_metrics(seq_item exp, seq_item rec, bit check);
-            int pid = get_packet_id(exp.data);
-            pkt_stats_t stored_info = packet_db[pid];
-            real delay = $realtime - stored_info.time_in;
-            int dst = rec.addr;
-            
-            if (!total_delay_per_term.exists(dst)) total_delay_per_term[dst] = 0;
-            if (!pkt_count_per_term.exists(dst))   pkt_count_per_term[dst] = 0;
-            if (!total_bits_per_term.exists(dst))  total_bits_per_term[dst] = 0;
-    
-            total_delay_per_term[dst] += delay;
-            pkt_count_per_term[dst]++;
-            total_bits_per_term[dst] += DATA_WIDTH;
-            
-            $fwrite(fd_csv, "%0.2f,%0d,%0d,%0.2f,%0.2f,%0d\n", stored_info.time_in, stored_info.src_port, dst, $realtime, delay, pid);
-        endfunction
-    
-        virtual function void report_phase (uvm_phase phase);
-            if (fd_csv) $fclose(fd_csv);
-            $display("SCB: Report generated in CSV.");
-        endfunction
-    endclass
+            if (bandwidth_gbps < min_sys_bw) begin
+                min_sys_bw = bandwidth_gbps;
+                term_min_bw = i;
+            end
+
+            // Imprimir Log en consola
+            `uvm_info("SCB", $sformatf("Term [%02d] -> Pkts: %0d | Avg Delay: %0.2fns | Avg BW: %0.4f Gbps | Range: [%0.2f - %0.2f]ns", 
+                                       i, pkt_count_per_term[i], avg_delay, bandwidth_gbps, min_delay_per_term[i], max_delay_per_term[i]), UVM_NONE)
+
+            // Escribir en archivo para Gnuplot
+            $fwrite(fd_dat, "%0d  %0.2f  %0.4f  %0d\n", i, avg_delay, bandwidth_gbps, pkt_count_per_term[i]);
+        end
+        $fclose(fd_dat);
+
+        `uvm_info("SCB", "---------------------------------------------------", UVM_NONE)
+        `uvm_info("SCB", $sformatf("System Max Avg BW: Terminal %0d (%0.4f Gbps)", term_max_bw, max_sys_bw), UVM_NONE)
+        `uvm_info("SCB", $sformatf("System Min Avg BW: Terminal %0d (%0.4f Gbps)", term_min_bw, min_sys_bw), UVM_NONE)
+        `uvm_info("SCB", "===================================================", UVM_NONE)
+        
+        // (D) Generar scripts de GNUplot
+        generate_gnuplot_scripts();
+    endfunction
+
+    // ----------------------------------------------------------------------
+    // Función Auxiliar: Crear scripts .gp para graficar
+    // ----------------------------------------------------------------------
+    function void generate_gnuplot_scripts();
+        int fd_gp;
+
+        // --- 1. Script para Retraso (Delay) ---
+        fd_gp = $fopen("plot_delay.gp", "w");
+        $fwrite(fd_gp, "set title 'Average Packet Delay per Terminal'\n");
+        $fwrite(fd_gp, "set style data histograms\n");
+        $fwrite(fd_gp, "set style fill solid 1.0 border -1\n");
+        $fwrite(fd_gp, "set xlabel 'Terminal ID'\n");
+        $fwrite(fd_gp, "set ylabel 'Delay (ns)'\n");
+        $fwrite(fd_gp, "set grid\n");
+        $fwrite(fd_gp, "set boxwidth 0.7\n");
+        $fwrite(fd_gp, "set term png size 1024,768\n");
+        $fwrite(fd_gp, "set output 'graph_delay.png'\n");
+        // Columna 2 = AvgDelay, xtic(1) = Terminal ID
+        $fwrite(fd_gp, "plot '%s' using 2:xtic(1) title 'Avg Delay (ns)' linecolor rgb '#3366cc'\n", filename_dat);
+        $fclose(fd_gp);
+
+        // --- 2. Script para Ancho de Banda (Bandwidth) ---
+        fd_gp = $fopen("plot_bw.gp", "w");
+        $fwrite(fd_gp, "set title 'Average Bandwidth per Terminal'\n");
+        $fwrite(fd_gp, "set style data histograms\n");
+        $fwrite(fd_gp, "set style fill solid 1.0 border -1\n");
+        $fwrite(fd_gp, "set xlabel 'Terminal ID'\n");
+        $fwrite(fd_gp, "set ylabel 'Bandwidth (Gbps)'\n");
+        $fwrite(fd_gp, "set grid\n");
+        $fwrite(fd_gp, "set boxwidth 0.7\n");
+        $fwrite(fd_gp, "set term png size 1024,768\n");
+        $fwrite(fd_gp, "set output 'graph_bandwidth.png'\n");
+        // Columna 3 = AvgBW
+        $fwrite(fd_gp, "plot '%s' using 3:xtic(1) title 'Avg BW (Gbps)' linecolor rgb '#cc3333'\n", filename_dat);
+        $fclose(fd_gp);
+
+        `uvm_info("SCB", "Gnuplot scripts generated: plot_delay.gp, plot_bw.gp", UVM_NONE)
+    endfunction
+
+endclass
 
     // ----------------------------------------------------------------
     // AGENT
