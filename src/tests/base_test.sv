@@ -3,7 +3,7 @@ class base_test extends uvm_test;
     router_env m_env;
 
     // Configurable parameters available on command line or extended tests
-    int cfg_num_msgs     = 50;
+    int cfg_num_msgs     = 2000;
     int cfg_src_terminal = -1; // Default Random
     
     function new(string name = "base_test", uvm_component parent=null);
