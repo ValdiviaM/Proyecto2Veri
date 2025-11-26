@@ -94,3 +94,45 @@ report:
 	$(SYNOPSYS_ENV); \
 	urg -dir simv.vdb -format text; \
 	cat urgReport/dashboard.txt
+
+
+
+# Generar gráficas con Gnuplot y abrirlas con Eye of Gnome (eog)
+# Nota: Se asume que el Scoreboard generó los scripts .gp en bld_dir
+plot:
+	cd $(bld_dir); \
+	if [ -f plot_delay.gp ]; then gnuplot plot_delay.gp; fi; \
+	if [ -f plot_bw.gp ]; then gnuplot plot_bw.gp; fi; \
+	if [ -f graph_delay.png ]; then eog graph_delay.png & fi; \
+	if [ -f graph_bandwidth.png ]; then eog graph_bandwidth.png & fi
+
+# Ver el reporte CSV de paquetes en la terminal
+view_csv:
+	@if [ -f $(bld_dir)/metrics_report.csv ]; then \
+		echo "--- CONTENIDO DE METRICS_REPORT.CSV ---"; \
+		cat $(bld_dir)/metrics_report.csv; \
+	else \
+		echo "Error: No se encontró metrics_report.csv. Ejecute 'make run' primero."; \
+	fi
+
+# Menú de Ayuda
+help:
+	@echo "======================================================================"
+	@echo "            ROUTER BUS UVM - COMANDOS DE EJECUCIÓN                    "
+	@echo "======================================================================"
+	@echo "Comandos Básicos:"
+	@echo "  make compile       : Compila el DUT y el Testbench."
+	@echo "  make run           : Ejecuta el test por defecto (base_test)."
+	@echo "  make clean         : Borra archivos temporales y logs."
+	@echo ""
+	@echo "Selección de Tests:"
+	@echo "  make run TEST=exhaustive_test  : Cobertura completa (Matriz Src/Dst)."
+	@echo "  make run TEST=contention_test  : Prueba de estrés de arbitraje."
+	@echo "  make run TEST=broadcast_test   : Prueba de funcionalidad Broadcast."
+	@echo "  make run TEST=reset_test       : Prueba de recuperación de Reset."
+	@echo ""
+	@echo "Reportes y Visualización:"
+	@echo "  make report        : Genera el reporte de cobertura (URG/HTML/Text)."
+	@echo "  make view_csv      : Muestra el log de paquetes CSV en terminal."
+	@echo "  make plot          : Genera y abre las gráficas de latencia (Gnuplot)."
+	@echo "======================================================================"
