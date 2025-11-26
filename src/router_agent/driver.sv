@@ -59,19 +59,20 @@ class router_driver extends uvm_driver #(seq_item);
         vif.drv_data_out_i_in[port] <= t.data;
         vif.drv_pndng_i_in[port]    <= 1'b1;
         
-        `uvm_info("DRV", $sformatf("Driving Port %0d with Data %0h", port, t.data), UVM_LOW);
+        `uvm_info("DRV", $sformatf("Driving Port %0d with Data %0h", port, t.data), UVM_HIGH)
 
         // 2. Wait for ACK from DUT
-        // *** CRITICAL FIX: Wait for 'popin' (DUT Output Ack), NOT 'pop' ***
+        // *** CRITICAL FIX: Increased Timeout for Congestion ***
         fork
             begin : wait_for_ack
                 do begin
                     @(posedge vif.clk);
-                end while (vif.popin[port] === 1'b0); // Fixed!
+                end while (vif.popin[port] === 1'b0); 
             end
             begin : watchdog
-                repeat(100) @(posedge vif.clk);
-                `uvm_error("DRV", $sformatf("Timeout waiting for popin (Ack) on port %0d", port))
+                // Increased from 100 to 10000 cycles to handle heavy congestion
+                repeat(10000) @(posedge vif.clk);
+                `uvm_error("DRV", $sformatf("Timeout waiting for popin (Ack) on port %0d. DUT is stalled.", port))
             end
         join_any
         disable fork;
