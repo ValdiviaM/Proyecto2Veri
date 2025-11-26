@@ -1,18 +1,18 @@
 class router_subscriber extends uvm_subscriber #(seq_item);
   `uvm_component_utils(router_subscriber)
 
-  // 1. Transaction Handle
+  // 1. Transaction Handle (Fixes 'Identifier not declared' error)
   seq_item req; 
 
-  // Parameters (Matching your pkg)
+  // Parameters
   int ROWS = 4;
   int COLUMS = 4;
 
-  // Derived variables
+  // Derived variables for Coverage
   int m_hops;
 
   // ------------------------------------------------------------------------
-  // COVERGROUP (Matches PDF Page 14-15)
+  // COVERGROUP (Matches PDF Tables 5 & 6-14)
   // ------------------------------------------------------------------------
   covergroup router_cg;
     option.per_instance = 1;
@@ -22,8 +22,8 @@ class router_subscriber extends uvm_subscriber #(seq_item);
 
     // 1. ROUTE_MODE_CP
     cp_mode: coverpoint req.mode {
-      bins row_first = {seq_item::ROW_FIRST}; // 1
-      bins col_first = {seq_item::COL_FIRST}; // 0
+      bins row_first = {seq_item::ROW_FIRST};
+      bins col_first = {seq_item::COL_FIRST};
     }
 
     // 2. SRC.TERMINAL.CP
@@ -64,7 +64,6 @@ class router_subscriber extends uvm_subscriber #(seq_item);
 
     // CROSS 1: Source x Dest 
     // "Cobertura punto-a-punto entre todos los nodos"
-    // We ignore broadcast here because broadcast dest is "all"
     cx_src_dst: cross cp_src, cp_dst iff (req.broadcast == 0);
 
     // CROSS 2: Route Mode x Path Length
@@ -99,7 +98,7 @@ class router_subscriber extends uvm_subscriber #(seq_item);
   endfunction
 
   // ------------------------------------------------------------------------
-  // Helper: Calculate Hops
+  // Helper: Calculate Hops (Manhattan Distance)
   // ------------------------------------------------------------------------
   function void calculate_hops();
     int src_r, src_c, dst_r, dst_c;
@@ -120,7 +119,7 @@ class router_subscriber extends uvm_subscriber #(seq_item);
     dist_c = (src_c > dst_c) ? (src_c - dst_c) : (dst_c - src_c);
 
     m_hops = dist_r + dist_c;
-    if (m_hops == 0) m_hops = 1; // Self-talk
+    if (m_hops == 0) m_hops = 1; // Self-talk normalized
   endfunction
 
   function void write(seq_item t);
