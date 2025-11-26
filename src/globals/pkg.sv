@@ -32,7 +32,8 @@ package router_pkg;
 
   // B. Sequences (Needs seq_item)
   `include "../sequences/base_seq.sv"
-
+  `include "../sequences/sequence_lib.sv" 
+ 
   // C. Agent Components (Need seq_item)
   `include "../router_agent/sequencer.sv"
   `include "../router_agent/driver.sv"
@@ -51,5 +52,5 @@ package router_pkg;
   // G. Tests (Need env, sequences)
   `include "../tests/base_test.sv"
   `include "../tests/RouteRowFirstTest.sv"
-
+  `include "../tests/test_lib.sv" 
 endpackage : router_pkg
