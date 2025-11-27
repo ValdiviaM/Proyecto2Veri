@@ -32,4 +32,4 @@ En la carpeta de src puede correr el comando
 ```sh
 make help
 ```
-Y se desplegarán los comandos que puede utilizar para compilarlo, ejecutarlo o utilizar distintas opciones de test.
+Y se desplegarán los comandos que puede utilizar para compilarlo, ejecutarlo y distintas opciones de test.
