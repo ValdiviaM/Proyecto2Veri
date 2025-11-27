@@ -17,7 +17,7 @@ class exhaustive_test extends base_test;
         fork
             begin
                 // Esperar hasta que la base de datos de paquetes pendientes llegue a 0
-                wait(m_env.m_scoreboard.packet_db.size() == 0);
+                wait(m_env.m_sb.packet_db.size() == 0);
                 `uvm_info("TEST", "All packets received! Drain complete.", UVM_LOW)
             end
             begin
@@ -50,7 +50,7 @@ class contention_test extends base_test;
         fork
             begin
                 // Esperar hasta que la base de datos de paquetes pendientes llegue a 0
-                wait(m_env.m_scoreboard.packet_db.size() == 0);
+                wait(m_env.m_sb.packet_db.size() == 0);
                 `uvm_info("TEST", "All packets received! Drain complete.", UVM_LOW)
             end
             begin
@@ -82,7 +82,7 @@ class broadcast_test extends base_test;
         fork
             begin
                 // Esperar hasta que la base de datos de paquetes pendientes llegue a 0
-                wait(m_env.m_scoreboard.packet_db.size() == 0);
+                wait(m_env.m_sb.packet_db.size() == 0);
                 `uvm_info("TEST", "All packets received! Drain complete.", UVM_LOW)
             end
             begin
@@ -116,7 +116,7 @@ class col_first_test extends base_test;
         fork
             begin
                 // Esperar hasta que la base de datos de paquetes pendientes llegue a 0
-                wait(m_env.m_scoreboard.packet_db.size() == 0);
+                wait(m_env.m_sb.packet_db.size() == 0);
                 `uvm_info("TEST", "All packets received! Drain complete.", UVM_LOW)
             end
             begin
