@@ -18,7 +18,8 @@
 
 ## Ambiente a desarrollar
 
-![image](https://github.com/user-attachments/assets/6e46d052-ae7e-40f4-8a0a-eab3fcbb116d)
+![Diagrama del proyecto](figs/project_diagram.png)
+
 <p align="center">
 
 <div align="center">
@@ -26,3 +27,9 @@
 </div>
 </p>
 
+## Comandos para ejecutar
+En la carpeta de src puede correr el comando
+```sh
+make help
+```
+Y se desplegarán los comandos que puede utilizar para compilarlo, ejecutarlo o utilizar distintas opciones de test.
