@@ -14,7 +14,21 @@ class exhaustive_test extends base_test;
         phase.raise_objection(this);
         seq = full_mesh_seq::type_id::create("seq");
         seq.start(m_env.m_agent.m_sequencer);
-        #5000;
+        fork
+            begin
+                // Esperar hasta que la base de datos de paquetes pendientes llegue a 0
+                wait(m_env.m_scoreboard.packet_db.size() == 0);
+                `uvm_info("TEST", "All packets received! Drain complete.", UVM_LOW)
+            end
+            begin
+                // Timeout de seguridad (por si se pierde un paquete de verdad)
+                // Calculamos un tiempo MUY largo basado en tus paquetes
+                #(cfg_num_msgs * 1000ns); 
+                `uvm_error("TEST", "Timeout waiting for scoreboard to drain. Packets likely lost.")
+            end
+        join_any
+        disable fork; // Matar el thread que no terminó (el timeout o el wait)
+
         phase.drop_objection(this);
     endtask
 endclass
@@ -33,7 +47,20 @@ class contention_test extends base_test;
         phase.raise_objection(this);
         seq = hotspot_seq::type_id::create("seq");
         seq.start(m_env.m_agent.m_sequencer);
-        #5000;
+        fork
+            begin
+                // Esperar hasta que la base de datos de paquetes pendientes llegue a 0
+                wait(m_env.m_scoreboard.packet_db.size() == 0);
+                `uvm_info("TEST", "All packets received! Drain complete.", UVM_LOW)
+            end
+            begin
+                // Timeout de seguridad (por si se pierde un paquete de verdad)
+                // Calculamos un tiempo MUY largo basado en tus paquetes
+                #(cfg_num_msgs * 1000ns); 
+                `uvm_error("TEST", "Timeout waiting for scoreboard to drain. Packets likely lost.")
+            end
+        join_any
+        disable fork;
         phase.drop_objection(this);
     endtask
 endclass
@@ -52,7 +79,20 @@ class broadcast_test extends base_test;
         phase.raise_objection(this);
         seq = broadcast_seq::type_id::create("seq");
         seq.start(m_env.m_agent.m_sequencer);
-        #5000;
+        fork
+            begin
+                // Esperar hasta que la base de datos de paquetes pendientes llegue a 0
+                wait(m_env.m_scoreboard.packet_db.size() == 0);
+                `uvm_info("TEST", "All packets received! Drain complete.", UVM_LOW)
+            end
+            begin
+                // Timeout de seguridad (por si se pierde un paquete de verdad)
+                // Calculamos un tiempo MUY largo basado en tus paquetes
+                #(cfg_num_msgs * 1000ns); 
+                `uvm_error("TEST", "Timeout waiting for scoreboard to drain. Packets likely lost.")
+            end
+        join_any
+        disable fork;
         phase.drop_objection(this);
     endtask
 endclass
@@ -73,7 +113,20 @@ class col_first_test extends base_test;
         seq.route_mode = 0; // Force Column First
         seq.num_trans  = 50;
         seq.start(m_env.m_agent.m_sequencer);
-        #5000;
+        fork
+            begin
+                // Esperar hasta que la base de datos de paquetes pendientes llegue a 0
+                wait(m_env.m_scoreboard.packet_db.size() == 0);
+                `uvm_info("TEST", "All packets received! Drain complete.", UVM_LOW)
+            end
+            begin
+                // Timeout de seguridad (por si se pierde un paquete de verdad)
+                // Calculamos un tiempo MUY largo basado en tus paquetes
+                #(cfg_num_msgs * 1000ns); 
+                `uvm_error("TEST", "Timeout waiting for scoreboard to drain. Packets likely lost.")
+            end
+        join_any
+        disable fork;
         phase.drop_objection(this);
     endtask
 endclass
