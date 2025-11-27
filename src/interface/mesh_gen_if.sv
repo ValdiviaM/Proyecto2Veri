@@ -1,117 +1,174 @@
-interface mesh_gen_if #(parameter ROWS = 4, parameter COLUMS = 4, parameter pckg_sz = 32, parameter fifo_depth = 4, parameter bdcst = {8{1'b1}})
-	(
-		input clk
-	);
+import uvm_pkg::*;
+`include "uvm_macros.svh"
 
-	bit reset;
-	bit pndng [ROWS*2+COLUMS*2];
-	bit [pckg_sz-1:0] data_out [ROWS*2+COLUMS*2];
-	bit popin [ROWS*2+COLUMS*2];
-	bit pop [ROWS*2+COLUMS*2];
-	bit [pckg_sz-1:0] data_out_i_in [ROWS*2+COLUMS*2];
-	bit pndng_i_in [ROWS*2+COLUMS*2];
+interface mesh_gen_if #(
+    parameter int ROWS    = 4,
+    parameter int COLUMS  = 4,
+    parameter int PCKG_SZ = 40
+) (input logic clk);
 
+    logic reset;
 
-  // --- Clocking Block --- 
-  // sentido de las senales
-  clocking cb @(posedge clk);
-    default input #1 output #1;
-    output data_out;
-	output pndng;
-	output popin;
+    // ============================================================
+    // 1. WIRES (Physical connections to DUT)
+    // ============================================================
     
-	input  clk;
-	input reset;
-	output data_out_i_in;
-	input pop;
-	output pndng_i_in;
-  endclocking
+    // ------------------------------------------------------------
+    // Group A: Injection Channels (TB -> DUT)
+    // ------------------------------------------------------------
+    // TB sends Data + Valid. DUT sends Ack (popin).
+    logic                   drv_pndng_i_in    [ROWS*2+COLUMS*2]; // Driven by Driver
+    logic [PCKG_SZ-1:0]     drv_data_out_i_in [ROWS*2+COLUMS*2]; // Driven by Driver
+    wire                    popin             [ROWS*2+COLUMS*2]; // Driven by DUT (Ack)
 
+    // Wires connecting logic to DUT inputs
+    wire                    pndng_i_in        [ROWS*2+COLUMS*2];
+    wire [PCKG_SZ-1:0]      data_out_i_in     [ROWS*2+COLUMS*2];
 
-  // --- Modports (Conectores) ---
-	modport TB(clocking cb);
-	modport MON (input clk, reset,
-                 input popin, data_out, pndng,
-                 input pop, data_out_i_in, pndng_i_in);
-    modport DUT (
-        input  clk, reset,                       // DUT recibe estos
-        input  pop, data_out_i_in, pndng_i_in,   // DUT recibe estos (inputs)
-        output popin, data_out, pndng            // DUT produce estos (outputs)
+    // ------------------------------------------------------------
+    // Group B: Ejection Channels (DUT -> TB)
+    // ------------------------------------------------------------
+    // DUT sends Data + Valid. TB sends Ack (pop).
+    wire                    pndng             [ROWS*2+COLUMS*2]; // Driven by DUT
+    wire [PCKG_SZ-1:0]      data_out          [ROWS*2+COLUMS*2]; // Driven by DUT
+    
+    logic                   drv_pop           [ROWS*2+COLUMS*2]; // Driven by Dummy Consumer
+    wire                    pop               [ROWS*2+COLUMS*2]; // Connected to DUT Input
+
+    // ============================================================
+    // 2. ASSIGNMENTS (Logic -> Wire Bridges)
+    // ============================================================
+    genvar gi;
+    generate
+      for (gi = 0; gi < ROWS*2+COLUMS*2; gi++) begin : BRIDGE
+        // Injection (TB -> DUT)
+        assign pndng_i_in[gi]    = drv_pndng_i_in[gi];
+        assign data_out_i_in[gi] = drv_data_out_i_in[gi];
+        
+        // Ejection (DUT -> TB) - TB drives 'pop'
+        assign pop[gi]           = drv_pop[gi];
+      end
+    endgenerate
+
+// ============================================================
+    // 3. DUMMY CONSUMER (Auto-Ack for DUT Outputs)
+    // ============================================================
+    // OLD (Incorrect - causing 1 cycle delay error):
+    /*
+    always @(posedge clk) begin
+        if (reset) begin
+            for (int k = 0; k < ROWS*2+COLUMS*2; k++)
+                drv_pop[k] <= 1'b0;
+        end else begin
+            for (int k = 0; k < ROWS*2+COLUMS*2; k++)
+                drv_pop[k] <= pndng[k]; 
+        end
+    end
+    */
+
+    // - Combinatorial):
+    // Immediately assert pop if pndng is high.
+    // When DUT drops pndng, pop drops instantly.
+    always_comb begin
+        for (int k = 0; k < ROWS*2+COLUMS*2; k++) begin
+            if (reset)
+                drv_pop[k] = 1'b0;
+            else
+                drv_pop[k] = pndng[k]; 
+        end
+    end
+
+    // ============================================================
+    // 4. MODPORTS
+    // ============================================================
+
+    modport TB (
+        input  clk,
+        output reset,
+
+        // Injection: TB Drives Data/Valid, Reads Ack (popin)
+        output drv_pndng_i_in,
+        output drv_data_out_i_in,
+        input  popin,
+
+        // Ejection: TB Reads Data/Valid (Ack handled by dummy logic above)
+        input  pndng,
+        input  data_out,
+        // (Internal visibility of drv_pop if needed)
+        output drv_pop
     );
 
-	
-	
-	// Assertions protocol
-	genvar i;
+    modport MON (
+        input clk, reset,
+        // Monitor needs to see all physical wires
+        input pndng, data_out, pop,          // Ejection Side
+        input pndng_i_in, data_out_i_in, popin // Injection Side
+    );
+
+    modport DUT (
+        input  clk, reset,
+        
+        // Injection Inputs (from TB)
+        input  pndng_i_in,
+        input  data_out_i_in,
+        // Injection Output (Ack to TB)
+        output popin,
+
+        // Ejection Outputs (to TB)
+        output pndng,
+        output data_out,
+        // Ejection Input (Ack from TB)
+        input  pop
+    );
+
+    // ============================================================
+    // 5. ASSERTIONS
+    // ============================================================
+    // Note: 'popin' is DUT->TB (Ack for Injection)
+    //       'pop'   is TB->DUT (Ack for Ejection)
+
     generate
-        for (i = 0; i < (ROWS*2+COLUMS*2); i++) begin : PROTOCOL
+      for (genvar i = 0; i < ROWS*2+COLUMS*2; i++) begin : PROTOCOL
 
-            //handshake desde el dut hacia el terminal - la salida del router
-            // 1. Si pndng = 1, el dato debe estar estable
-            //sin popin no se puede mandar otro paquete
-            property data_stable_until_popin;
-                @(posedge clk)
-                pndng[i] |-> $stable(data_out[i]) or popin[i];
-            endproperty
+        // --- EJECTION SIDE (DUT -> TB) ---
+        // Data stable until TB acknowledges (pop)
+        property data_stable_until_ack;
+            @(posedge clk) disable iff (reset)
+            (pndng[i] && !pop[i]) |=> $stable(data_out[i]);
+        endproperty
+        assert property(data_stable_until_ack) else `uvm_error("IF", $sformatf("Port %0d [Eject]: Data unstable during valid without Ack (pop)", i));
 
-            assert property (data_stable_until_popin)
-                else $error("Protocol ERROR: data_out[%0d] changed while pndng=1 before popin!", i);
-
-
-            // 2. No puede haber popin si pndng = 0
-            //    no hay datos que consumir
-            property popin_only_when_valid;
-                @(posedge clk)
-                popin[i] |-> pndng[i];
-            endproperty
-
-            assert property(popin_only_when_valid)
-                else $error("Protocol ERROR: popin[%0d] asserted while pndng=0", i);
+        // TB should only Ack if Data is Valid
+        property ack_only_when_valid;
+            @(posedge clk) disable iff (reset)
+            pop[i] |-> pndng[i];
+        endproperty
+        assert property(ack_only_when_valid) else `uvm_error("IF", $sformatf("Port %0d [Eject]: TB asserted POP without PNDNG", i));
 
 
-            // 3. Después de popin, pndng debe bajar
-            //    consumir paquete
-            property popin_consumes_data;
-                @(posedge clk)
-                popin[i] |=> !pndng[i];
-            endproperty
+        // --- INJECTION SIDE (TB -> DUT) ---
+        // DUT should eventually Ack (popin) a request
+        property req_eventually_acked;
+            @(posedge clk) disable iff (reset)
+            pndng_i_in[i] |-> ##[1:$] popin[i];
+        endproperty
+        assert property(req_eventually_acked) else `uvm_warning("IF", $sformatf("Port %0d [Inject]: Request stuck, DUT never asserted POPIN", i));
 
-            assert property(popin_consumes_data)
-                else $warning("Protocol WARNING: pndng[%0d] did not clear after popin", i);
+        // Data stable until DUT Acknowledges (popin)
+        property driver_data_stable;
+            @(posedge clk) disable iff (reset)
+            (pndng_i_in[i] && !popin[i]) |=> $stable(data_out_i_in[i]);
+        endproperty
+        assert property(driver_data_stable) else `uvm_error("IF", $sformatf("Port %0d [Inject]: Driver changed Data without Ack (popin)", i));
 
-            //Handshake opuesto - entrada al router
-            // 4) Si TB levanta pndng_i_in, DUT debe reconocerlo con pop
-            // fuerza ha hacer la operacion
-            property tb_req_must_be_ack;
-                @(posedge clk)
-                pndng_i_in[i] |-> ##[1:$] pop[i];
-            endproperty
+        // DUT should only Ack if Driver is requesting
+        property dut_ack_valid;
+            @(posedge clk) disable iff (reset)
+            popin[i] |-> pndng_i_in[i];
+        endproperty
+        assert property(dut_ack_valid) else `uvm_error("IF", $sformatf("Port %0d [Inject]: DUT asserted POPIN without PNDNG_I_IN", i));
 
-            assert property(tb_req_must_be_ack)
-                else $warning("Protocol WARNING: DUT never popped TB request at terminal %0d", i);
-
-
-            // 5. Mientras pndng_i_in=1, TB debe mantener data_out_i_in estable
-            // evitar leer paquetes corruptos
-            property tb_data_stable_during_req;
-                @(posedge clk)
-                pndng_i_in[i] |-> $stable(data_out_i_in[i]) or pop[i];
-            endproperty
-
-            assert property(tb_data_stable_during_req)
-                else $error("Protocol ERROR: TB changed data_out_i_in[%0d] before DUT pop", i);
-
-            
-            // 6. pop solo puede ocurrir si hay pndng_i_in=1
-            //    solo se recibe lo que se esta enviando
-            property pop_only_when_tb_has_data;
-                @(posedge clk)
-                pop[i] |-> pndng_i_in[i];
-            endproperty
-
-            assert property(pop_only_when_tb_has_data)
-                else $error("Protocol ERROR: DUT pop[%0d] asserted while pndng_i_in=0", i);
-
-        end
+      end
     endgenerate
+
 endinterface

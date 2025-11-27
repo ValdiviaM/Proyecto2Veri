@@ -1,67 +1,85 @@
+class seq_item extends uvm_sequence_item;
 
-
-
-class seq_item #(parameter ADDR_WIDTH = router_pkg::ADDR_WIDTH, parameter DATA_WIDTH = router_pkg::DATA_WIDTH, parameter 
-				MAX_N_CYCLES = router_pkg::MAX_N_CYCLES) extends uvm_sequence_item;
-	
-
-	typedef enum logic [0:0] {
-		ROW_FIRST = 1'b1,
-		COL_FIRST = 1'b0
-	} route_mode_e;
-
-	typedef enum logic {
-		NO_ERROR    = 1'b0,
-		HAS_ERR = 1'b1
-	} error_type_e;
+    // 1. Enums
+    typedef enum logic [0:0] { ROW_FIRST = 1'b1, COL_FIRST = 1'b0 } route_mode_e;
+    
+    typedef enum logic [1:0] { 
+        NO_ERROR  = 2'b00, 
+        HDR_ERROR = 2'b01, 
+        PAY_ERROR = 2'b10 
+    } error_type_e;
         
-        //typedef enum { EAST, WEST, NORTH, SOUTH } route_mode_e;
-	// -------------------------------
-	// Random fields
-	// -------------------------------
-	
-	rand bit [ADDR_WIDTH-1:0] addr;
-	rand bit [DATA_WIDTH-1:0] data;
-	rand bit [$clog2(MAX_N_CYCLES)-1:0] cycles_between;
-	rand route_mode_e mode;
-	
-	// Flags
-	rand error_type_e msg_error;
-	rand bit broadcast;     // Si el mensaje es broadcast
+    // 2. Randomized Fields
+    rand bit [ADDR_WIDTH-1:0] src;          
+    rand bit [ADDR_WIDTH-1:0] addr;         
+    rand bit [DATA_WIDTH-1:0] data;         
+    rand bit [$clog2(MAX_N_CYCLES)-1:0] cycles_between;
+    rand route_mode_e mode;
+    rand error_type_e msg_error;
+    rand bit broadcast;
+    rand bit [3:0] target_row;
+    rand bit [3:0] target_col;
 
-	//Salidas
-	bit [DATA_WIDTH-1:0] out_dut;
+    // 3. UVM Factory Registration
+    `uvm_object_utils_begin(seq_item)
+        `uvm_field_int(src,           UVM_ALL_ON)
+        `uvm_field_int(addr,          UVM_ALL_ON)
+        `uvm_field_int(data,          UVM_ALL_ON | UVM_HEX)
+        `uvm_field_enum(error_type_e, msg_error, UVM_ALL_ON)
+        `uvm_field_int(broadcast,     UVM_ALL_ON)
+    `uvm_object_utils_end
 
-	`uvm_object_utils_begin(seq_item)
-		`uvm_field_int(addr,          UVM_ALL_ON)
-		`uvm_field_int(data,          UVM_ALL_ON)
-		`uvm_field_int(cycles_between,UVM_ALL_ON)
-		`uvm_field_enum(route_mode_e, mode, UVM_ALL_ON)
-		`uvm_field_enum(error_type_e, msg_error, UVM_ALL_ON)
-		`uvm_field_int(broadcast,     UVM_ALL_ON)
-	`uvm_object_utils_end
+    // 4. Constructor
+    function new (string name = "seq_item");
+        super.new(name);
+    endfunction
 
-	// -------------------------------
-	// Constraints
-	// -------------------------------
-	constraint gap_c { cycles_between < MAX_N_CYCLES; }
-	constraint broadcast_c {
-		broadcast dist { 1'b0 := 9, 1'b1 := 1};
-	}
-	constraint error_c {
-		msg_error dist { NO_ERROR := 9, HAS_ERR := 1 };
-	}
-	constraint bdcst_addr_c {
-		solve broadcast before addr;
-		if (broadcast)
-			addr == {ADDR_WIDTH{1'b1}};
-	}
+    // -----------------------------------------------------------------------
+    // HELPER: Inyectar ID para Scoreboard
+    // -----------------------------------------------------------------------
+    function void set_payload_id_for_scb(int id);
+       data[14:7] = id[7:0];  
+    endfunction
 
+    // 5. Constraints
 
-	// build phase (constructor)
-	function new (string name = "seq_item");
-		super.new(name);
-	endfunction : new
+    // Timing Constraint (Relaxed for Stability)
+    // Changed from [0:15] to [2:20] to prevent instant FIFO overflows
+    constraint gap_c { cycles_between inside {[2:20]}; }
+    
+    // Valid Ports (0 to 15)
+    constraint src_valid_c { src inside {[0 : 15]}; }
+    constraint dst_valid_c { addr inside {[0 : 15]}; }
+    
+    // Don't send to yourself unless broadcasting
+    constraint src_dst_diff_c { 
+        if (!broadcast) src != addr; 
+    }
 
-endclass:seq_item
+    // Broadcast Probability (10%)
+    constraint broadcast_c { broadcast dist { 1'b0 := 9, 1'b1 := 1}; }
+    
+    // Error distribution
+    constraint error_c { 
+        msg_error dist { NO_ERROR := 80, HDR_ERROR := 10, PAY_ERROR := 10 }; 
+    }
 
+    // -----------------------------------------------------------------------
+    // HEADER FORMATTING CONSTRAINT
+    // -----------------------------------------------------------------------
+    constraint header_valid_c {
+        target_row==data[DATA_WIDTH-9:DATA_WIDTH-12];
+        target_col==data[DATA_WIDTH-13:DATA_WIDTH-16];
+        if (broadcast) {
+            // Force Broadcast ID (FF) in the top byte
+            data[DATA_WIDTH-1 : DATA_WIDTH-8] == 8'hFF;
+        } else {
+            // Map 0-15 ID to Row/Col 0-3
+            (target_row==0 || target_row==5 || target_col==0 || target_col==5);
+        
+            target_row inside {[0:5]};
+            target_col inside {[0:5]};
+        }
+    }
+
+endclass

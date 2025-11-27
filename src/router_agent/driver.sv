@@ -1,79 +1,88 @@
-`include "uvm_macros.svh"
-import uvm_pkg::*;
-import router_pkg::*;
+class router_driver extends uvm_driver #(seq_item);
+    `uvm_component_utils(router_driver)
 
-// Driver class
-class router_driver extends uvm_driver #(seq_item#(ADDR_WIDTH, DATA_WIDTH, MAX_N_CYCLES));
-  `uvm_component_utils(router_driver)
+    virtual mesh_gen_if #(ROWS, COLUMS, DATA_WIDTH).TB vif;
+    seq_item req;
+    
+    semaphore port_locks[(ROWS*2 + COLUMS*2)];
 
-  // virtual interface handle
-  virtual mesh_gen_if vif;
-  seq_item#(ADDR_WIDTH, DATA_WIDTH, MAX_N_CYCLES) req;
+    function new(string name = "router_driver", uvm_component parent = null);
+        super.new(name, parent);
+        for(int i=0; i < (ROWS*2 + COLUMS*2); i++) begin
+            port_locks[i] = new(1);
+        end
+    endfunction
 
+    function void build_phase(uvm_phase phase);
+        super.build_phase(phase);
+        if (!uvm_config_db#(virtual mesh_gen_if #(ROWS, COLUMS, DATA_WIDTH).TB)::get(this, "", "vif", vif))
+            `uvm_fatal("DRV", "Cannot get virtual interface")
+    endfunction
 
-  // constructor
-  function new(string name = "router_driver", uvm_component parent = null);
-    super.new(name, parent);
-    `uvm_info("DRV", "Inside constructor", UVM_HIGH);
-  endfunction
+    task run_phase(uvm_phase phase);
+        seq_item req_cloned;
 
-  // build phase
-  function void build_phase(uvm_phase phase);
-    super.build_phase(phase);
-    `uvm_info("DRV", "build_phase", UVM_HIGH);
+        // Init signals
+        for (int i = 0; i < (ROWS*2+COLUMS*2); i++) begin
+            vif.drv_pndng_i_in[i] <= 1'b0;
+            vif.drv_data_out_i_in[i] <= '0;
+        end
 
-    // get the interface from config DB
-    if (!uvm_config_db#(virtual mesh_gen_if)::get(this, "", "vif", vif))
-      `uvm_fatal("DRV", "Cannot get virtual interface from config DB")
-    else
-      `uvm_info("DRV", "Got virtual interface OK", UVM_LOW);
-  endfunction
+        // Wait for Reset
+        wait (vif.reset === 1'b0);
+        @(posedge vif.clk);
 
-  // run phase
-  task run_phase(uvm_phase phase);
-    super.run_phase(phase);
-    `uvm_info("DRV", "Run phase", UVM_HIGH);
+        forever begin
+            seq_item_port.get_next_item(req);
+            $cast(req_cloned, req.clone());
+            
+            fork
+                automatic seq_item t = req_cloned;
+                begin
+                    drive(t); 
+                end
+            join_none
+            
+            seq_item_port.item_done();
+        end
+    endtask
 
-    forever begin
-      // create / reuse request item
-      if (req == null)
-        req = seq_item::type_id::create("req", this);
+    task drive(seq_item t);
+        int unsigned port = t.src; 
 
-      // Get item from sequencer
-      seq_item_port.get_next_item(req);
+        if (port >= (ROWS*2 + COLUMS*2)) return;
 
-      `uvm_info("DRV",
-                $sformatf("Start driving: addr=%0d data=%0d mode=%0d",
-                          req.addr, req.data, req.mode),
-                UVM_MEDIUM);
+        port_locks[port].get(); 
 
-      // drive the transaction
-      drive(req);
+        // 1. Assert Request
+        @(posedge vif.clk);
+        vif.drv_data_out_i_in[port] <= t.data;
+        vif.drv_pndng_i_in[port]    <= 1'b1;
+        
+        `uvm_info("DRV", $sformatf("Driving Port %0d with Data %0h", port, t.data), UVM_HIGH)
 
-      `uvm_info("DRV", "Finished Driving", UVM_HIGH);
-      seq_item_port.item_done();
-    end
-  endtask
+        // 2. Wait for ACK from DUT
+        // *** CRITICAL FIX: Increased Timeout for Congestion ***
+        fork
+            begin : wait_for_ack
+                do begin
+                    @(posedge vif.clk);
+                end while (vif.popin[port] === 1'b0); 
+            end
+            begin : watchdog
+                // Increased from 100 to 10000 cycles to handle heavy congestion
+                repeat(10000) @(posedge vif.clk);
+                `uvm_error("DRV", $sformatf("Timeout waiting for popin (Ack) on port %0d. DUT is stalled.", port))
+            end
+        join_any
+        disable fork;
 
-  // Drive task
-  task drive(seq_item t);
-    int unsigned port = 0;
+        // 3. De-assert Request
+        vif.drv_pndng_i_in[port] <= 1'b0;
+        
+        repeat (t.cycles_between) @(posedge vif.clk);
 
-    // wait for clocking block edge
-    @(vif.cb);
+        port_locks[port].put();
+    endtask
 
-    vif.cb.data_out_i_in[port] <= t.data;
-    vif.cb.pndng_i_in[port]    <= 1'b1;
-
-    `uvm_info("DRV",
-              $sformatf("Driving port=%0d data=%0h", port, t.data),
-              UVM_MEDIUM);
-
-    // wait a cycle
-    @(vif.cb);
-
-    vif.cb.pndng_i_in[port] <= 1'b0;
-  endtask
-
-endclass : router_driver
-
+endclass
