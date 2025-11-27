@@ -65,7 +65,9 @@ class scoreboard extends uvm_component;
         int dst;
         bit is_broadcast;
         
+        // --- CHECK: Verificar existencia ---
         if (!packet_db.exists(pid)) begin
+            // Si el monitor está corregido, esto es un error real del DUT o duplicado residual.
             `uvm_warning("SCB", $sformatf("Unexpected output packet ID: %0d", pid))
             return;
         end
@@ -73,7 +75,10 @@ class scoreboard extends uvm_component;
         exp_info = packet_db[pid];
         current_delay = $realtime - exp_info.time_in;
         dst = item.addr; 
-        is_broadcast=(exp_info.raw_data[DATA_WIDTH-1: DATA_WIDTH-8]==8'hFF);
+        
+        // --- CHECK: Es Broadcast? ---
+        // Asumiendo formato: broadcast flag en byte superior
+        is_broadcast = (exp_info.raw_data[DATA_WIDTH-1: DATA_WIDTH-8] == 8'hFF);
 
         // Write CSV
         if (fd_csv) begin
@@ -81,7 +86,7 @@ class scoreboard extends uvm_component;
                     exp_info.time_in, exp_info.src_port, dst, $realtime, current_delay, pid);
         end
 
-        // Stats
+        // Stats Accumulation
         if (!pkt_count_per_term.exists(dst)) begin
             pkt_count_per_term[dst]   = 0;
             total_delay_per_term[dst] = 0;
@@ -96,9 +101,13 @@ class scoreboard extends uvm_component;
 
         if (current_delay < min_delay_per_term[dst]) min_delay_per_term[dst] = current_delay;
         if (current_delay > max_delay_per_term[dst]) max_delay_per_term[dst] = current_delay;
+
+        // --- CHECK: Borrado Condicional ---
         if(!is_broadcast) begin
-            packet_db.delete(pid);
+            packet_db.delete(pid); // Borramos solo si es Unicast
         end
+        // Si es broadcast, lo dejamos vivo para las otras copias.
+        
         simulation_end_time = $realtime;
     endfunction
 
@@ -136,7 +145,6 @@ class scoreboard extends uvm_component;
 
     function void generate_gnuplot_scripts();
         int fd_gp;
-        // Script 1: Delay
         fd_gp = $fopen("plot_delay.gp", "w");
         $fwrite(fd_gp, "set title 'Average Packet Delay per Terminal'\n");
         $fwrite(fd_gp, "set style data histograms\nset style fill solid 1.0 border -1\n");
@@ -144,7 +152,6 @@ class scoreboard extends uvm_component;
         $fwrite(fd_gp, "plot '%s' using 2:xtic(1) title 'Avg Delay (ns)'\n", filename_dat);
         $fclose(fd_gp);
         
-        // Script 2: Bandwidth
         fd_gp = $fopen("plot_bw.gp", "w");
         $fwrite(fd_gp, "set title 'Average Bandwidth per Terminal'\n");
         $fwrite(fd_gp, "set style data histograms\nset style fill solid 1.0 border -1\n");
