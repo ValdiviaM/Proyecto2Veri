@@ -14,6 +14,7 @@ class exhaustive_test extends base_test;
         phase.raise_objection(this);
         seq = full_mesh_seq::type_id::create("seq");
         seq.start(m_env.m_agent.m_sequencer);
+        #5000;
         phase.drop_objection(this);
     endtask
 endclass
@@ -32,6 +33,7 @@ class contention_test extends base_test;
         phase.raise_objection(this);
         seq = hotspot_seq::type_id::create("seq");
         seq.start(m_env.m_agent.m_sequencer);
+        #5000;
         phase.drop_objection(this);
     endtask
 endclass
@@ -50,6 +52,7 @@ class broadcast_test extends base_test;
         phase.raise_objection(this);
         seq = broadcast_seq::type_id::create("seq");
         seq.start(m_env.m_agent.m_sequencer);
+        #5000;
         phase.drop_objection(this);
     endtask
 endclass
@@ -70,6 +73,7 @@ class col_first_test extends base_test;
         seq.route_mode = 0; // Force Column First
         seq.num_trans  = 50;
         seq.start(m_env.m_agent.m_sequencer);
+        #5000;
         phase.drop_objection(this);
     endtask
 endclass

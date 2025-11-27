@@ -19,7 +19,7 @@ for (int s = 0; s < 16; s++) begin
        addr == d; 
        broadcast == 0; 
        msg_error == seq_item::NO_ERROR;  
-       cycles_between inside {[0:2]}; 
+       cycles_between inside {[10:20]}; 
    }); 
     
    // FIX: INYECTAR ID UNICO 

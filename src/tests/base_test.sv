@@ -38,7 +38,7 @@ class base_test extends uvm_test;
         `uvm_info("TEST", "Starting Sequence with Configured Knobs...", UVM_LOW)
         seq.start(m_env.m_agent.m_sequencer);
         
-        #2000; 
+        #5000; 
         phase.drop_objection(this);
     endtask
 endclass

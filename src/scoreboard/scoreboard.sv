@@ -63,7 +63,8 @@ class scoreboard extends uvm_component;
         pkt_stats_t exp_info;
         real current_delay;
         int dst;
-
+        bit is_broadcast;
+        
         if (!packet_db.exists(pid)) begin
             `uvm_warning("SCB", $sformatf("Unexpected output packet ID: %0d", pid))
             return;
@@ -72,6 +73,7 @@ class scoreboard extends uvm_component;
         exp_info = packet_db[pid];
         current_delay = $realtime - exp_info.time_in;
         dst = item.addr; 
+        is_broadcast=(exp_info.raw_data[DATA_WIDTH-1: DATA_WIDTH-8]==8'hFF);
 
         // Write CSV
         if (fd_csv) begin
@@ -94,8 +96,9 @@ class scoreboard extends uvm_component;
 
         if (current_delay < min_delay_per_term[dst]) min_delay_per_term[dst] = current_delay;
         if (current_delay > max_delay_per_term[dst]) max_delay_per_term[dst] = current_delay;
-
-        packet_db.delete(pid);
+        if(!is_broadcast) begin
+            packet_db.delete(pid);
+        end
         simulation_end_time = $realtime;
     endfunction
 

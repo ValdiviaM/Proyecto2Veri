@@ -21,6 +21,7 @@ class router_monitor extends uvm_monitor;
     virtual task run_phase(uvm_phase phase);
         forever begin
             @(posedge vif.clk);
+            #1step;
             if (!vif.reset) begin
                 for (int i = 0; i < NUM_PORTS; i++) begin
                     

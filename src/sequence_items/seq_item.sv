@@ -17,6 +17,8 @@ class seq_item extends uvm_sequence_item;
     rand route_mode_e mode;
     rand error_type_e msg_error;
     rand bit broadcast;
+    rand bit [3:0] target_row;
+    rand bit [3:0] target_col;
 
     // 3. UVM Factory Registration
     `uvm_object_utils_begin(seq_item)
@@ -66,13 +68,17 @@ class seq_item extends uvm_sequence_item;
     // HEADER FORMATTING CONSTRAINT
     // -----------------------------------------------------------------------
     constraint header_valid_c {
+        target_row==data[DATA_WIDTH-9:DATA_WIDTH-12];
+        target_col==data[DATA_WIDTH-13:DATA_WIDTH-16];
         if (broadcast) {
             // Force Broadcast ID (FF) in the top byte
             data[DATA_WIDTH-1 : DATA_WIDTH-8] == 8'hFF;
         } else {
             // Map 0-15 ID to Row/Col 0-3
-            data[DATA_WIDTH-9  : DATA_WIDTH-12] inside {[0:3]}; // Target Row
-            data[DATA_WIDTH-13 : DATA_WIDTH-16] inside {[0:3]}; // Target Col
+            (target_row==0 || target_row==5 || target_col==0 || target_col==5);
+        
+            target_row inside {[0:5]};
+            target_col inside {[0:5]};
         }
     }
 
