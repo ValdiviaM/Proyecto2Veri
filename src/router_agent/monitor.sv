@@ -1,19 +1,37 @@
+//------------------------------------------------------------------------------
+// Component: router_monitor
+//------------------------------------------------------------------------------
+// Monitor UVM que observa tanto la interfaz de INJECTION (TB -> DUT) como la
+// de EJECTION (DUT -> TB). Extrae `seq_item` desde las señales físicas y los
+// publica vía `ap_in` y `ap_out` hacia el scoreboard/otros consumidores.
+//------------------------------------------------------------------------------
+
 class router_monitor extends uvm_monitor;
     `uvm_component_utils(router_monitor)
 
+    // Analysis ports: salida del monitor hacia scoreboard/subscribers
     uvm_analysis_port #(seq_item) ap_in;
     uvm_analysis_port #(seq_item) ap_out;
 
+    // Interfaz virtual (modport MON) para leer todas las señales físicas
     virtual mesh_gen_if #(ROWS, COLUMS, DATA_WIDTH).MON vif;
 
     // --- NUEVO: Arrays para filtrar duplicados ---
+    // last_seen_id_in  : almacena último ID leído por puerto (injection)
+    // last_seen_id_out : almacena último ID leído por puerto (ejection)
     int last_seen_id_in [int]; 
     int last_seen_id_out [int];
 
+    //--------------------------------------------------------------------------
+    // Constructor
+    //--------------------------------------------------------------------------
     function new(string name="monitor", uvm_component parent=null);
         super.new(name, parent);
     endfunction
 
+    //--------------------------------------------------------------------------
+    // build_phase: obtiene la interfaz virtual y crea los analysis ports
+    //--------------------------------------------------------------------------
     virtual function void build_phase(uvm_phase phase);
         super.build_phase(phase);
         if (!uvm_config_db#(virtual mesh_gen_if #(ROWS, COLUMS, DATA_WIDTH).MON)::get(this, "", "vif", vif))
@@ -22,11 +40,19 @@ class router_monitor extends uvm_monitor;
         ap_out = new("ap_out", this);
     endfunction
 
-    // Helper local para extraer ID (Idéntico al del scoreboard)
+    //--------------------------------------------------------------------------
+    // Helper: extracción del ID de paquete desde el campo DATA
+    //--------------------------------------------------------------------------
     function int get_packet_id(bit [DATA_WIDTH-1:0] data);
         return data[(DATA_WIDTH - 26) -: 8]; 
     endfunction
 
+    //--------------------------------------------------------------------------
+    // run_phase: ciclo principal del monitor
+    // - Inicializa filtros por puerto
+    // - En cada flanco chequea handshakes de IN y OUT
+    // - Evita emitir items duplicados mientras el handshake permanezca activo
+    //--------------------------------------------------------------------------
     virtual task run_phase(uvm_phase phase);
         // Inicialización de la memoria de filtro
         for(int i=0; i < (ROWS*2+COLUMS*2); i++) begin
@@ -42,7 +68,10 @@ class router_monitor extends uvm_monitor;
                 for (int i = 0; i < NUM_PORTS; i++) begin
                     
                     // =========================================================
-                    // 1. MONITOR INJECTION (Entrada)
+                    // 1. MONITOR INJECTION (Entrada: TB -> DUT)
+                    // - Observa pndng_i_in + popin y lee data_out_i_in
+                    // - Filtra duplicados por ID para evitar múltiples publicaciones
+                    //   mientras el handshake esté activo.
                     // =========================================================
                     if (vif.pndng_i_in[i] === 1'b1 && vif.popin[i] === 1'b1) begin
                         int current_id = get_packet_id(vif.data_out_i_in[i]);
@@ -65,7 +94,9 @@ class router_monitor extends uvm_monitor;
                     end
 
                     // =========================================================
-                    // 2. MONITOR EJECTION (Salida)
+                    // 2. MONITOR EJECTION (Salida: DUT -> TB)
+                    // - Observa pndng + pop y lee data_out
+                    // - Filtra duplicados por ID para evitar múltiples publicaciones
                     // =========================================================
                     if (vif.pndng[i] === 1'b1 && vif.pop[i] === 1'b1) begin
                         int current_id = get_packet_id(vif.data_out[i]);

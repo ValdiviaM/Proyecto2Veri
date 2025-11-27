@@ -1,3 +1,14 @@
+//------------------------------------------------------------------------------
+// Interface: mesh_gen_if
+//------------------------------------------------------------------------------
+// Interfaz que conecta el testbench (TB) con el DUT para un router mesh.
+// - Define señales físicas (injection/ejection).
+// - Provee bridges entre lógica interna del TB y las líneas hacia el DUT.
+// - Incluye un "dummy consumer" (auto-ack) para la salida del DUT.
+// - Define modports para TB, MON y DUT.
+// - Assertions del protocolo.
+//------------------------------------------------------------------------------
+
 import uvm_pkg::*;
 `include "uvm_macros.svh"
 
@@ -7,28 +18,31 @@ interface mesh_gen_if #(
     parameter int PCKG_SZ = 40
 ) (input logic clk);
 
+    // Reset global
     logic reset;
 
     // ============================================================
-    // 1. WIRES (Physical connections to DUT)
+    // 1. WIRES (Conexiones físicas entre TB <-> DUT)
     // ============================================================
-    
+
     // ------------------------------------------------------------
     // Group A: Injection Channels (TB -> DUT)
+    // - TB (Driver) envía: drv_pndng_i_in (valid) + drv_data_out_i_in (data)
+    // - DUT devuelve ack por popin (popin = DUT -> TB ack)
     // ------------------------------------------------------------
-    // TB sends Data + Valid. DUT sends Ack (popin).
     logic                   drv_pndng_i_in    [ROWS*2+COLUMS*2]; // Driven by Driver
     logic [PCKG_SZ-1:0]     drv_data_out_i_in [ROWS*2+COLUMS*2]; // Driven by Driver
     wire                    popin             [ROWS*2+COLUMS*2]; // Driven by DUT (Ack)
 
-    // Wires connecting logic to DUT inputs
+    // Wires que representan las entradas reales del DUT (bridge desde TB)
     wire                    pndng_i_in        [ROWS*2+COLUMS*2];
     wire [PCKG_SZ-1:0]      data_out_i_in     [ROWS*2+COLUMS*2];
 
     // ------------------------------------------------------------
     // Group B: Ejection Channels (DUT -> TB)
+    // - DUT envía: pndng (valid) + data_out (data)
+    // - TB responde con pop (ack). Aquí el TB ack es manejado por drv_pop
     // ------------------------------------------------------------
-    // DUT sends Data + Valid. TB sends Ack (pop).
     wire                    pndng             [ROWS*2+COLUMS*2]; // Driven by DUT
     wire [PCKG_SZ-1:0]      data_out          [ROWS*2+COLUMS*2]; // Driven by DUT
     
@@ -36,7 +50,9 @@ interface mesh_gen_if #(
     wire                    pop               [ROWS*2+COLUMS*2]; // Connected to DUT Input
 
     // ============================================================
-    // 2. ASSIGNMENTS (Logic -> Wire Bridges)
+    // 2. ASSIGNMENTS (Bridges: logic -> wire)
+    // - Conecta las señales "drv_*" (lógicas del TB) a las líneas físicas
+    //   que ve el DUT.
     // ============================================================
     genvar gi;
     generate
@@ -51,23 +67,11 @@ interface mesh_gen_if #(
     endgenerate
 
 // ============================================================
-    // 3. DUMMY CONSUMER (Auto-Ack for DUT Outputs)
+    // 3. DUMMY CONSUMER (Auto-Ack para salidas del DUT)
+    // - Versión combinacional: pop se iguala inmediatamente a pndng.
+    // - Evita delays de 1 ciclo que causaba la versión sincronizada.
     // ============================================================
-    // OLD (Incorrect - causing 1 cycle delay error):
-    /*
-    always @(posedge clk) begin
-        if (reset) begin
-            for (int k = 0; k < ROWS*2+COLUMS*2; k++)
-                drv_pop[k] <= 1'b0;
-        end else begin
-            for (int k = 0; k < ROWS*2+COLUMS*2; k++)
-                drv_pop[k] <= pndng[k]; 
-        end
-    end
-    */
 
-    // - Combinatorial):
-    // Immediately assert pop if pndng is high.
     // When DUT drops pndng, pop drops instantly.
     always_comb begin
         for (int k = 0; k < ROWS*2+COLUMS*2; k++) begin
@@ -80,8 +84,10 @@ interface mesh_gen_if #(
 
     // ============================================================
     // 4. MODPORTS
+    // - TB: driver/consumer (controla drv_* y observa popin/pndng)
+    // - MON: monitor que necesita visibilidad completa de wires
+    // - DUT: interfaz hacia el DUT
     // ============================================================
-
     modport TB (
         input  clk,
         output reset,
@@ -122,7 +128,9 @@ interface mesh_gen_if #(
     );
 
     // ============================================================
-    // 5. ASSERTIONS
+    // 5. ASSERTIONS (Protocolo)
+    // - Verifican invarianzas básicas del handshake entre TB y DUT
+    // - Abarcan ambos lados: Ejection (DUT->TB) e Injection (TB->DUT)
     // ============================================================
     // Note: 'popin' is DUT->TB (Ack for Injection)
     //       'pop'   is TB->DUT (Ack for Ejection)
